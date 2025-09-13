@@ -20,7 +20,15 @@ class CsvWriter:
     def write_row(self, timestamp: float, value: float) -> None:
         if not self._writer:
             return
-        self._writer.writerow([f"{timestamp:.9f}", f"{value:.9f}"])
+        # Format timestamp to show seconds with appropriate precision
+        # For high sample rates, show more decimal places
+        if timestamp < 0.001:  # Less than 1ms
+            timestamp_str = f"{timestamp:.9f}"
+        elif timestamp < 1.0:  # Less than 1 second
+            timestamp_str = f"{timestamp:.6f}"
+        else:  # 1 second or more
+            timestamp_str = f"{timestamp:.3f}"
+        self._writer.writerow([timestamp_str, f"{value:.6f}"])
 
     def close(self) -> None:
         if self._file:

@@ -5,6 +5,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Tuple
+from datetime import datetime
 
 import numpy as np
 from PyQt6 import QtCore
@@ -29,6 +30,10 @@ class ControllerConfig:
     coupling: int = 1  # 1=DC, 0=AC for ps4000
     voltage_range: int = 7  # ±5 V
     resolution_bits: int = 16
+    cache_directory: Path = Path.cwd() / "cache"
+    y_min: float = -5.0
+    y_max: float = 5.0
+    timeline_seconds: float = 60.0
 
 
 class AppController(QtCore.QObject):
@@ -39,11 +44,14 @@ class AppController(QtCore.QObject):
         super().__init__()
         self._config = ControllerConfig()
         self._source: AcquisitionSource = DummySineSource()
+        self._pico_source: Optional[PicoDirectSource] = None
         self._pipeline = ProcessingPipeline()
         self._writer: Optional[CsvWriter] = None
+        self._cache_writer: Optional[CsvWriter] = None
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
         self._device_available: bool = False
+        self._session_start_time: Optional[datetime] = None
 
     # ----- Config setters -----
     def set_sample_rate(self, hz: int) -> None:
@@ -82,13 +90,47 @@ class AppController(QtCore.QObject):
         self._config.recording_enabled = enabled
         self.signal_status.emit("Recording: ON" if enabled else "Recording: OFF")
 
+    def set_cache_directory(self, directory: Path) -> None:
+        self._config.cache_directory = directory
+        self.signal_status.emit(f"Cache directory: {directory}")
+
+    def set_y_range(self, y_min: float, y_max: float) -> None:
+        self._config.y_min = y_min
+        self._config.y_max = y_max
+        self.signal_status.emit(f"Y-axis range: {y_min:.1f} to {y_max:.1f} V")
+
+    def set_timeline(self, timeline_seconds: float) -> None:
+        self._config.timeline_seconds = timeline_seconds
+        self.signal_status.emit(f"Timeline: {timeline_seconds:.1f} seconds")
+
+    def _create_cache_filename(self) -> Path:
+        """Create timestamped cache filename."""
+        if self._session_start_time is None:
+            self._session_start_time = datetime.now()
+        timestamp_str = self._session_start_time.strftime("%Y_%m_%d_%H.%M.%S")
+        return self._config.cache_directory / f"Flash_Data_Logger_CSV_{timestamp_str}.csv"
+
     # ----- Lifecycle -----
     def probe_device(self) -> None:
-        """Test PicoScope DLL availability without opening device (to avoid popup)."""
+        """Test PicoScope DLL availability and open device once (popup acceptable at startup)."""
         success, message = test_device_connection()
         self._device_available = success
         if success:
-            self.signal_status.emit(f"✓ {message}")
+            # Create and open the PicoDirectSource once at startup
+            try:
+                self._pico_source = PicoDirectSource()
+                # Configure with default settings to open the device
+                self._pico_source.configure(
+                    sample_rate_hz=self._config.sample_rate_hz,
+                    channel=self._config.channel,
+                    coupling=self._config.coupling,
+                    voltage_range=self._config.voltage_range,
+                    resolution_bits=self._config.resolution_bits,
+                )
+                self.signal_status.emit(f"✓ {message} (device opened)")
+            except Exception as ex:
+                self._pico_source = None
+                self.signal_status.emit(f"⚠ {message} - Device open failed: {ex}")
         else:
             self.signal_status.emit(f"⚠ {message}")
 
@@ -96,46 +138,62 @@ class AppController(QtCore.QObject):
         if self._thread and self._thread.is_alive():
             return
         self._stop_event.clear()
-        # Use our fresh, proven implementation
+        
+        # Reuse existing PicoDirectSource if available, otherwise create new one
         source_msg = ""
-        try:
-            self._source = PicoDirectSource()
-            self._source.configure(
-                sample_rate_hz=self._config.sample_rate_hz,
-                channel=self._config.channel,
-                coupling=self._config.coupling,
-                voltage_range=self._config.voltage_range,
-                resolution_bits=self._config.resolution_bits,
-            )
-            source_msg = "Using Pico source (ps4000)"
-        except Exception as ex:
-            # Surface exact error details as required for Phase 1
-            error_msg = str(ex)
-            dll_info = ""
-            if hasattr(self._source, 'get_diagnostics'):
-                try:
-                    dll_info = f" — {self._source.get_diagnostics()}"
-                except:
-                    pass
-            
-            source_msg = f"Pico init failed: {error_msg}{dll_info} — using dummy"
-            self._source = DummySineSource()
-
-        try:
-            self._source.configure(
-                sample_rate_hz=self._config.sample_rate_hz,
-                channel=self._config.channel,
-                coupling=self._config.coupling,
-                voltage_range=self._config.voltage_range,
-                resolution_bits=self._config.resolution_bits,
-            )
-        except Exception:
-            pass
-        if self._config.recording_enabled:
-            self._writer = CsvWriter(self._config.filename)
-            self._writer.open()
+        if self._pico_source is not None:
+            # Reuse the device that was opened at startup
+            self._source = self._pico_source
+            try:
+                # Just reconfigure the existing device (no new device open)
+                self._source.configure(
+                    sample_rate_hz=self._config.sample_rate_hz,
+                    channel=self._config.channel,
+                    coupling=self._config.coupling,
+                    voltage_range=self._config.voltage_range,
+                    resolution_bits=self._config.resolution_bits,
+                )
+                source_msg = "Using Pico source (ps4000) - device reused"
+            except Exception as ex:
+                source_msg = f"Pico reconfigure failed: {ex} — using dummy"
+                self._source = DummySineSource()
         else:
-            self._writer = None
+            # Fallback: create new source (this will cause popup)
+            try:
+                self._source = PicoDirectSource()
+                self._source.configure(
+                    sample_rate_hz=self._config.sample_rate_hz,
+                    channel=self._config.channel,
+                    coupling=self._config.coupling,
+                    voltage_range=self._config.voltage_range,
+                    resolution_bits=self._config.resolution_bits,
+                )
+                source_msg = "Using Pico source (ps4000) - new device"
+            except Exception as ex:
+                error_msg = str(ex)
+                source_msg = f"Pico init failed: {error_msg} — using dummy"
+                self._source = DummySineSource()
+
+        # Configure dummy source if needed
+        if isinstance(self._source, DummySineSource):
+            try:
+                self._source.configure(
+                    sample_rate_hz=self._config.sample_rate_hz,
+                    channel=self._config.channel,
+                    coupling=self._config.coupling,
+                    voltage_range=self._config.voltage_range,
+                    resolution_bits=self._config.resolution_bits,
+                )
+            except Exception:
+                pass
+        
+        # Always create cache CSV file
+        cache_filename = self._create_cache_filename()
+        self._cache_writer = CsvWriter(cache_filename)
+        self._cache_writer.open()
+        
+        # No longer need user CSV file since we always cache
+        self._writer = None
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
         if source_msg:
@@ -146,13 +204,17 @@ class AppController(QtCore.QObject):
         self._stop_event.set()
         if self._thread:
             self._thread.join(timeout=2)
-        try:
-            self._source.close()
-        except Exception:
-            pass
-        if self._writer:
-            self._writer.close()
-            self._writer = None
+        
+        # Only close the source if it's not our persistent PicoDirectSource
+        if self._source is not self._pico_source:
+            try:
+                self._source.close()
+            except Exception:
+                pass
+        
+        if self._cache_writer:
+            self._cache_writer.close()
+            self._cache_writer = None
         self.signal_status.emit("Stopped")
 
     def reset_data(self) -> None:
@@ -161,6 +223,50 @@ class AppController(QtCore.QObject):
             self._source._sample_count = 0
             self._source._start_time = None
         self.signal_status.emit("Data reset")
+
+    def save_cache_csv(self, destination_path: Path) -> bool:
+        """Save the current cache CSV to a user-specified location."""
+        # Check if we have a cache writer or if we can find the last cache file
+        cache_path = None
+        
+        if self._cache_writer:
+            # Cache writer is active, use it
+            cache_path = self._cache_writer._path
+            self._cache_writer.close()
+            self._cache_writer = None
+        else:
+            # Look for the most recent cache file
+            cache_dir = self._config.cache_directory
+            if cache_dir.exists():
+                cache_files = list(cache_dir.glob("Flash_Data_Logger_CSV_*.csv"))
+                if cache_files:
+                    # Get the most recent file
+                    cache_path = max(cache_files, key=lambda f: f.stat().st_mtime)
+        
+        if not cache_path or not cache_path.exists():
+            self.signal_status.emit("No data to save - start data acquisition first")
+            return False
+        
+        try:
+            # Copy the cache file to the destination
+            import shutil
+            shutil.copy2(cache_path, destination_path)
+            
+            self.signal_status.emit(f"CSV saved to: {destination_path}")
+            return True
+        except Exception as e:
+            self.signal_status.emit(f"Failed to save CSV: {e}")
+            return False
+
+    def cleanup(self) -> None:
+        """Clean up resources when application shuts down."""
+        self.stop()
+        if self._pico_source is not None:
+            try:
+                self._pico_source.close()
+            except Exception:
+                pass
+            self._pico_source = None
 
     # ----- Worker loop -----
     def _run_loop(self) -> None:
@@ -177,25 +283,33 @@ class AppController(QtCore.QObject):
             next_tick += period
 
             # Acquire
-            value, timestamp = self._source.read()
-            # Process
-            value = self._pipeline.process(value)
+            try:
+                value, timestamp = self._source.read()
+                # Process
+                value = self._pipeline.process(value)
+            except Exception as e:
+                self.signal_status.emit(f"Data acquisition error: {e}")
+                continue
 
             # Record in-memory buffers for plotting (timestamp is already relative to 0)
             buffer_time.append(timestamp)
             buffer_data.append(value)
+            
+            # Debug: show first few data points
+            if len(buffer_data) <= 5:
+                self.signal_status.emit(f"Data point {len(buffer_data)}: {value:.4f}V at {timestamp:.6f}s")
 
-            # Persist
-            if self._writer:
-                self._writer.write_row(timestamp, value)
+            # Persist to cache file (always)
+            if self._cache_writer:
+                self._cache_writer.write_row(timestamp, value)
 
             # Plot update throttled to ~30 FPS
             if len(buffer_data) >= max(5, self._config.sample_rate_hz // 30):
                 data = np.asarray(buffer_data, dtype=float)
                 time_axis = np.asarray(buffer_time, dtype=float)
                 self.signal_plot.emit((data, time_axis))
-                # keep last few seconds
-                keep = self._config.sample_rate_hz * 5
+                # keep data for the specified timeline plus some buffer for scrolling
+                keep = int(self._config.sample_rate_hz * (self._config.timeline_seconds + 10))
                 if len(buffer_data) > keep:
                     del buffer_data[:-keep]
                     del buffer_time[:-keep]

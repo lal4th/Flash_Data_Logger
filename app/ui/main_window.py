@@ -38,13 +38,34 @@ class MainWindow(QtWidgets.QMainWindow):
         self.button_reset = QtWidgets.QPushButton("Reset Plot", controls)
         self.button_stop.setEnabled(False)
 
-        self.checkbox_record = QtWidgets.QCheckBox("Record to CSV", controls)
-        self.lineedit_filename = QtWidgets.QLineEdit(str(Path.cwd() / "data.csv"))
-        self.button_browse = QtWidgets.QPushButton("Browse…", controls)
-
-        filename_row = QtWidgets.QHBoxLayout()
-        filename_row.addWidget(self.lineedit_filename, 1)
-        filename_row.addWidget(self.button_browse, 0)
+        self.button_save_csv = QtWidgets.QPushButton("Save CSV to...", controls)
+        
+        # Cache directory setting
+        self.lineedit_cache_dir = QtWidgets.QLineEdit(str(Path.cwd() / "cache"))
+        self.button_browse_cache = QtWidgets.QPushButton("Browse…", controls)
+        
+        cache_row = QtWidgets.QHBoxLayout()
+        cache_row.addWidget(self.lineedit_cache_dir, 1)
+        cache_row.addWidget(self.button_browse_cache, 0)
+        
+        # Plot controls
+        self.spinbox_y_max = QtWidgets.QDoubleSpinBox(controls)
+        self.spinbox_y_max.setRange(0.1, 100.0)
+        self.spinbox_y_max.setValue(5.0)
+        self.spinbox_y_max.setSuffix(" V")
+        self.spinbox_y_max.setDecimals(1)
+        
+        self.spinbox_y_min = QtWidgets.QDoubleSpinBox(controls)
+        self.spinbox_y_min.setRange(-100.0, -0.1)
+        self.spinbox_y_min.setValue(-5.0)
+        self.spinbox_y_min.setSuffix(" V")
+        self.spinbox_y_min.setDecimals(1)
+        
+        self.spinbox_timeline = QtWidgets.QDoubleSpinBox(controls)
+        self.spinbox_timeline.setRange(1.0, 3600.0)
+        self.spinbox_timeline.setValue(60.0)
+        self.spinbox_timeline.setSuffix(" s")
+        self.spinbox_timeline.setDecimals(1)
 
         # Device controls
         self.combo_channel = QtWidgets.QComboBox(controls)
@@ -97,8 +118,11 @@ class MainWindow(QtWidgets.QMainWindow):
         controls_layout.addRow("Range:", self.combo_range)
         controls_layout.addRow("Resolution:", self.combo_resolution)
         controls_layout.addRow("Sample rate:", self.combo_samplerate)
-        controls_layout.addRow(self.checkbox_record)
-        controls_layout.addRow("Filename:", filename_row)
+        controls_layout.addRow("Y-axis Max:", self.spinbox_y_max)
+        controls_layout.addRow("Y-axis Min:", self.spinbox_y_min)
+        controls_layout.addRow("Timeline:", self.spinbox_timeline)
+        controls_layout.addRow("CSV Cache:", cache_row)
+        controls_layout.addRow(self.button_save_csv)
         controls_layout.addRow("Status:", self.label_status)
 
         # Plot area
@@ -112,6 +136,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.plot_widget.setBackground("w")
         self.plot_widget.showGrid(x=True, y=True, alpha=0.3)
         self.plot_curve = self.plot_widget.plot(pen=pg.mkPen(color=(50, 100, 200), width=2))
+        
+        # Initialize plot with correct axis ranges
+        self.plot_widget.setXRange(0, 60, padding=0)  # Default 60 seconds
+        self.plot_widget.setYRange(-5, 5, padding=0)  # Default ±5V
+        
         plot_layout.addWidget(self.plot_widget, 1)
 
         # Wire up controller
@@ -125,8 +154,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.button_start.clicked.connect(self._on_start_clicked)
         self.button_stop.clicked.connect(self._on_stop_clicked)
         self.button_reset.clicked.connect(self._on_reset_clicked)
-        self.button_browse.clicked.connect(self._on_browse_clicked)
-        self.checkbox_record.toggled.connect(self._on_record_toggled)
+        self.button_browse_cache.clicked.connect(self._on_browse_cache_clicked)
+        self.button_save_csv.clicked.connect(self._on_save_csv_clicked)
+        self.spinbox_y_max.valueChanged.connect(self._on_y_range_changed)
+        self.spinbox_y_min.valueChanged.connect(self._on_y_range_changed)
+        self.spinbox_timeline.valueChanged.connect(self._on_timeline_changed)
         self.combo_samplerate.currentIndexChanged.connect(self._on_samplerate_changed)
 
         self.controller.signal_status.connect(self._on_status_changed)
@@ -142,15 +174,16 @@ class MainWindow(QtWidgets.QMainWindow):
         self.controller.set_coupling(int(self.combo_coupling.currentData()))
         self.controller.set_voltage_range(int(self.combo_range.currentData()))
         self.controller.set_resolution(int(self.combo_resolution.currentData()))
-        self.controller.set_filename(Path(self.lineedit_filename.text()))
-        self.controller.set_recording(self.checkbox_record.isChecked())
+        self.controller.set_cache_directory(Path(self.lineedit_cache_dir.text()))
+        self.controller.set_y_range(self.spinbox_y_min.value(), self.spinbox_y_max.value())
+        self.controller.set_timeline(self.spinbox_timeline.value())
         # Ensure controller stops when window closes to avoid dangling threads
         self._app_closing = False
         def _on_about_to_quit() -> None:
             if not self._app_closing:
                 self._app_closing = True
                 try:
-                    self.controller.stop()
+                    self.controller.cleanup()
                 except Exception:
                     pass
         QtWidgets.QApplication.instance().aboutToQuit.connect(_on_about_to_quit)  # type: ignore[arg-type]
@@ -167,25 +200,46 @@ class MainWindow(QtWidgets.QMainWindow):
         self.button_stop.setEnabled(False)
 
     def _on_reset_clicked(self) -> None:
-        # Clear the plot
+        # Clear the plot and reset axes
         self.plot_curve.setData([], [])
+        self.plot_widget.setXRange(0, self.spinbox_timeline.value(), padding=0)  # Reset to user-specified timeline
+        self.plot_widget.setYRange(self.spinbox_y_min.value(), self.spinbox_y_max.value(), padding=0)  # Reset to user-specified range
         # Reset the controller's data source if there's a method for it
         if hasattr(self.controller, 'reset_data'):
             self.controller.reset_data()
 
-    def _on_browse_clicked(self) -> None:
+    def _on_y_range_changed(self) -> None:
+        self.controller.set_y_range(self.spinbox_y_min.value(), self.spinbox_y_max.value())
+
+    def _on_timeline_changed(self) -> None:
+        self.controller.set_timeline(self.spinbox_timeline.value())
+
+    def _on_browse_cache_clicked(self) -> None:
+        directory = QtWidgets.QFileDialog.getExistingDirectory(
+            self,
+            "Select Cache Directory",
+            self.lineedit_cache_dir.text(),
+        )
+        if directory:
+            self.lineedit_cache_dir.setText(directory)
+            self.controller.set_cache_directory(Path(directory))
+
+    def _on_save_csv_clicked(self) -> None:
         filename, _ = QtWidgets.QFileDialog.getSaveFileName(
             self,
-            "Select CSV file",
-            self.lineedit_filename.text(),
+            "Save CSV File",
+            "Flash_Data_Logger_CSV.csv",
             "CSV Files (*.csv);;All Files (*.*)",
         )
         if filename:
-            self.lineedit_filename.setText(filename)
-            self.controller.set_filename(Path(filename))
+            success = self.controller.save_cache_csv(Path(filename))
+            if not success:
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    "Save Failed",
+                    "Failed to save CSV file. Make sure data acquisition is running."
+                )
 
-    def _on_record_toggled(self, checked: bool) -> None:
-        self.controller.set_recording(checked)
 
     def _on_samplerate_changed(self, _index: int) -> None:
         self.controller.set_sample_rate(int(self.combo_samplerate.currentData()))
@@ -202,6 +256,24 @@ class MainWindow(QtWidgets.QMainWindow):
         data, time_axis = payload  # type: ignore[assignment]
         if data.size == 0:
             return
+        
+        # Update the plot data
         self.plot_curve.setData(time_axis, data)
+        
+        # Implement fixed timeline with scrolling when data exceeds timeline
+        if len(time_axis) > 0:
+            max_time = time_axis[-1]
+            timeline = self.spinbox_timeline.value()
+            
+            if max_time <= timeline:
+                # Data is within timeline, show from 0 to timeline
+                self.plot_widget.setXRange(0, timeline, padding=0)
+            else:
+                # Data exceeds timeline, scroll to show last timeline seconds
+                min_time = max_time - timeline
+                self.plot_widget.setXRange(min_time, max_time, padding=0)
+            
+            # Keep Y axis fixed at user-specified range
+            self.plot_widget.setYRange(self.spinbox_y_min.value(), self.spinbox_y_max.value(), padding=0)
 
 

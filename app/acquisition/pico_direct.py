@@ -116,7 +116,11 @@ class PicoDirectSource(AcquisitionSource):
     def read(self) -> Tuple[float, float]:
         self._ensure_open()
         if self._buf is None or self._buf_idx >= len(self._buf):
-            self._capture_block()
+            try:
+                self._capture_block()
+            except Exception as e:
+                print(f"Capture block error: {e}")
+                return 0.0, 0.0
         if self._buf is None or len(self._buf) == 0:
             return 0.0, 0.0
         
@@ -232,23 +236,24 @@ class PicoDirectSource(AcquisitionSource):
         
         # Calculate and store actual sample interval achieved
         actual_interval_ns = time_interval_ns.value
-        print(f"Debug: timebase={timebase}, interval_ns={actual_interval_ns}")
         
-        if actual_interval_ns > 0:
+        # Validate the returned interval - it should be reasonable for the timebase
+        # For timebase 3: expected ~8ns, for timebase 8: expected ~48ns, etc.
+        expected_interval_ns = self._calculate_expected_interval_ns(timebase)
+        is_reasonable = (actual_interval_ns > 0 and 
+                        actual_interval_ns >= expected_interval_ns * 0.1 and 
+                        actual_interval_ns <= expected_interval_ns * 10.0)
+        
+        if is_reasonable:
             self._actual_sample_interval_s = actual_interval_ns / 1e9  # Convert ns to seconds
             actual_sample_rate = int(1e9 / actual_interval_ns)
-            print(f"Info: Requested {self._sample_rate_hz} Hz, using timebase {timebase} = {actual_sample_rate} Hz (interval={self._actual_sample_interval_s:.6f}s)")
         else:
-            # ps4000GetTimebase2 isn't working properly, use direct calculation
+            # ps4000GetTimebase2 returned unreasonable value, use direct calculation
             # For ps4000: timebase 3 = 8ns, 4 = 16ns, 5 = 32ns, etc.
-            if timebase >= 3:
-                calculated_interval_ns = (timebase - 2) * 8
-            else:
-                calculated_interval_ns = 2 ** timebase  # 0=1ns, 1=2ns, 2=4ns
+            calculated_interval_ns = expected_interval_ns
             
             self._actual_sample_interval_s = calculated_interval_ns / 1e9
             actual_sample_rate = int(1e9 / calculated_interval_ns)
-            print(f"Info: ps4000GetTimebase2 returned 0, calculated: timebase {timebase} = {actual_sample_rate} Hz (interval={self._actual_sample_interval_s:.6f}s)")
         
         # Set up data buffer
         buffer_length = no_of_samples
@@ -347,6 +352,16 @@ class PicoDirectSource(AcquisitionSource):
         self._buf_idx = 0
         # Store the base timestamp for this buffer
         self._buffer_start_sample = self._sample_count
+
+    def _calculate_expected_interval_ns(self, timebase: int) -> int:
+        """Calculate expected interval in nanoseconds for a given timebase."""
+        # ps4000 timebase to interval mapping:
+        # timebase 0: 1 ns, 1: 2 ns, 2: 4 ns, 3: 8 ns
+        # timebase >= 3: interval = (timebase - 2) * 8 ns
+        if timebase >= 3:
+            return (timebase - 2) * 8
+        else:
+            return 2 ** timebase  # 0=1ns, 1=2ns, 2=4ns
 
     def _find_best_timebase(self, target_interval_ns: int, no_of_samples: int) -> int:
         """Find the best timebase for the target sample rate."""
