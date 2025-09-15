@@ -10,7 +10,7 @@ from datetime import datetime
 import numpy as np
 from PyQt6 import QtCore
 
-from app.acquisition.source import AcquisitionSource, DummySineSource
+from app.acquisition.source import AcquisitionSource
 from app.acquisition.pico_direct import PicoDirectSource, test_device_connection
 from app.processing.pipeline import ProcessingPipeline
 from app.storage.csv_writer import CsvWriter
@@ -28,22 +28,23 @@ class ControllerConfig:
     recording_enabled: bool = False
     channel: int = 0
     coupling: int = 1  # 1=DC, 0=AC for ps4000
-    voltage_range: int = 7  # ±5 V
+    voltage_range: int = 8  # ±10 V (changed from ±5V to prevent saturation)
     resolution_bits: int = 16
     cache_directory: Path = Path.cwd() / "cache"
-    y_min: float = -5.0
-    y_max: float = 5.0
+    y_min: float = -10.0  # Will be updated based on voltage range
+    y_max: float = 10.0   # Will be updated based on voltage range
     timeline_seconds: float = 60.0
 
 
 class AppController(QtCore.QObject):
     signal_status = QtCore.pyqtSignal(str)
     signal_plot = QtCore.pyqtSignal(object)
+    signal_clear_plot = QtCore.pyqtSignal()
 
     def __init__(self) -> None:
         super().__init__()
         self._config = ControllerConfig()
-        self._source: AcquisitionSource = DummySineSource()
+        self._source: Optional[AcquisitionSource] = None
         self._pico_source: Optional[PicoDirectSource] = None
         self._pipeline = ProcessingPipeline()
         self._writer: Optional[CsvWriter] = None
@@ -56,12 +57,17 @@ class AppController(QtCore.QObject):
     # ----- Config setters -----
     def set_sample_rate(self, hz: int) -> None:
         # Clamp to a reasonable device-aware range for ps4000 streaming
+        # Limit to 1000 Hz for better stability (2000 Hz was still causing crashes)
         min_hz = 1
-        max_hz = 1_000_000
+        max_hz = 1000  # Further reduced from 2000 to prevent crashes
         clamped = int(max(min_hz, min(max_hz, hz)))
         self._config.sample_rate_hz = clamped
-        if clamped != hz:
-            self.signal_status.emit(f"Sample rate clamped to: {clamped} Hz")
+        
+        # Warn about high sample rates that might cause performance issues
+        if clamped > 500:
+            self.signal_status.emit(f"Sample rate set: {clamped} Hz (High rate - performance may be affected)")
+        elif clamped != hz:
+            self.signal_status.emit(f"Sample rate clamped to: {clamped} Hz (max: 1000 Hz)")
         else:
             self.signal_status.emit(f"Sample rate set: {clamped} Hz")
 
@@ -139,6 +145,12 @@ class AppController(QtCore.QObject):
             return
         self._stop_event.clear()
         
+        # Clear the plot for fresh session first
+        self.signal_clear_plot.emit()
+        
+        # Reset data source counters for fresh session
+        self.reset_data()
+        
         # Reuse existing PicoDirectSource if available, otherwise create new one
         source_msg = ""
         if self._pico_source is not None:
@@ -155,10 +167,10 @@ class AppController(QtCore.QObject):
                 )
                 source_msg = "Using Pico source (ps4000) - device reused"
             except Exception as ex:
-                source_msg = f"Pico reconfigure failed: {ex} — using dummy"
-                self._source = DummySineSource()
+                self.signal_status.emit(f"Failed to start: Pico reconfigure failed: {ex}")
+                return
         else:
-            # Fallback: create new source (this will cause popup)
+            # Create new source - no fallback
             try:
                 self._source = PicoDirectSource()
                 self._source.configure(
@@ -170,22 +182,8 @@ class AppController(QtCore.QObject):
                 )
                 source_msg = "Using Pico source (ps4000) - new device"
             except Exception as ex:
-                error_msg = str(ex)
-                source_msg = f"Pico init failed: {error_msg} — using dummy"
-                self._source = DummySineSource()
-
-        # Configure dummy source if needed
-        if isinstance(self._source, DummySineSource):
-            try:
-                self._source.configure(
-                    sample_rate_hz=self._config.sample_rate_hz,
-                    channel=self._config.channel,
-                    coupling=self._config.coupling,
-                    voltage_range=self._config.voltage_range,
-                    resolution_bits=self._config.resolution_bits,
-                )
-            except Exception:
-                pass
+                self.signal_status.emit(f"Failed to start: Pico init failed: {ex}")
+                return
         
         # Always create cache CSV file
         cache_filename = self._create_cache_filename()
@@ -219,9 +217,24 @@ class AppController(QtCore.QObject):
 
     def reset_data(self) -> None:
         """Reset data source counters for a fresh start."""
-        if hasattr(self._source, '_sample_count'):
+        # Reset the persistent PicoDirectSource if it exists
+        if self._pico_source is not None:
+            if hasattr(self._pico_source, 'reset_session'):
+                self._pico_source.reset_session()
+            else:
+                # Fallback for other source types
+                self._pico_source._sample_count = 0
+                self._pico_source._start_time = None
+                if hasattr(self._pico_source, '_buffer_start_sample'):
+                    self._pico_source._buffer_start_sample = 0
+        # Also reset current source if it's different
+        if hasattr(self._source, 'reset_session'):
+            self._source.reset_session()
+        elif hasattr(self._source, '_sample_count'):
             self._source._sample_count = 0
             self._source._start_time = None
+            if hasattr(self._source, '_buffer_start_sample'):
+                self._source._buffer_start_sample = 0
         self.signal_status.emit("Data reset")
 
     def save_cache_csv(self, destination_path: Path) -> bool:
@@ -274,44 +287,91 @@ class AppController(QtCore.QObject):
         next_tick = time.perf_counter()
         buffer_time: list[float] = []
         buffer_data: list[float] = []
+        
+        # CSV batch writing for high sample rates - ultra-aggressive batching for extreme rates
+        if self._config.sample_rate_hz <= 100:
+            csv_batch_size = 10
+        elif self._config.sample_rate_hz <= 500:
+            csv_batch_size = 50
+        elif self._config.sample_rate_hz <= 1000:
+            csv_batch_size = 100
+        else:  # 1000+ Hz - ultra-aggressive batching
+            csv_batch_size = 500  # Much larger batches for very high rates
+        
+        csv_batch_time: list[float] = []
+        csv_batch_data: list[float] = []
+        
+        # Plot update frequency - ultra-conservative for high sample rates
+        if self._config.sample_rate_hz <= 100:
+            plot_update_interval = 10
+        elif self._config.sample_rate_hz <= 500:
+            plot_update_interval = 25
+        elif self._config.sample_rate_hz <= 1000:
+            plot_update_interval = 50
+        else:  # 1000+ Hz - ultra-conservative updates
+            plot_update_interval = 200  # Very infrequent updates for extreme rates
 
-        while not self._stop_event.is_set():
-            now = time.perf_counter()
-            if now < next_tick:
-                time.sleep(max(0.0, next_tick - now))
-                continue
-            next_tick += period
+        try:
+            sample_count = 0
+            while not self._stop_event.is_set():
+                now = time.perf_counter()
+                if now < next_tick:
+                    time.sleep(max(0.0, next_tick - now))
+                    continue
+                next_tick += period
 
-            # Acquire
-            try:
-                value, timestamp = self._source.read()
-                # Process
-                value = self._pipeline.process(value)
-            except Exception as e:
-                self.signal_status.emit(f"Data acquisition error: {e}")
-                continue
+                # Acquire
+                try:
+                    value, timestamp = self._source.read()
+                    # Process
+                    value = self._pipeline.process(value)
+                    sample_count += 1
+                    
+                    # Performance monitoring for high sample rates
+                    if self._config.sample_rate_hz > 500 and sample_count % 1000 == 0:
+                        self.signal_status.emit(f"Performance: {sample_count} samples acquired at {self._config.sample_rate_hz} Hz")
+                        
+                except Exception as e:
+                    self.signal_status.emit(f"Data acquisition error: {e}")
+                    continue
 
-            # Record in-memory buffers for plotting (timestamp is already relative to 0)
-            buffer_time.append(timestamp)
-            buffer_data.append(value)
-            
-            # Show first few data points in status
-            if len(buffer_data) <= 5:
-                self.signal_status.emit(f"Data point {len(buffer_data)}: {value:.4f}V at {timestamp:.6f}s")
+                # Record in-memory buffers for plotting (timestamp is already relative to 0)
+                buffer_time.append(timestamp)
+                buffer_data.append(value)
+                
+                # Batch CSV data
+                csv_batch_time.append(timestamp)
+                csv_batch_data.append(value)
+                
+                # Show first few data points in status
+                if len(buffer_data) <= 5:
+                    self.signal_status.emit(f"Data point {len(buffer_data)}: {value:.4f}V at {timestamp:.6f}s")
 
-            # Persist to cache file (always)
-            if self._cache_writer:
-                self._cache_writer.write_row(timestamp, value)
+                # Write CSV in batches to improve performance
+                if len(csv_batch_data) >= csv_batch_size and self._cache_writer:
+                    self._cache_writer.write_batch(csv_batch_time, csv_batch_data)
+                    csv_batch_time.clear()
+                    csv_batch_data.clear()
 
-            # Plot update throttled to ~30 FPS
-            if len(buffer_data) >= max(5, self._config.sample_rate_hz // 30):
-                data = np.asarray(buffer_data, dtype=float)
-                time_axis = np.asarray(buffer_time, dtype=float)
-                self.signal_plot.emit((data, time_axis))
-                # keep data for the specified timeline plus some buffer for scrolling
-                keep = int(self._config.sample_rate_hz * (self._config.timeline_seconds + 10))
-                if len(buffer_data) > keep:
-                    del buffer_data[:-keep]
-                    del buffer_time[:-keep]
+                # Plot update with adaptive frequency
+                if len(buffer_data) >= plot_update_interval:
+                    data = np.asarray(buffer_data, dtype=float)
+                    time_axis = np.asarray(buffer_time, dtype=float)
+                    self.signal_plot.emit((data, time_axis))
+                    
+                    # Keep data for the specified timeline plus some buffer for scrolling
+                    # More aggressive memory management for high sample rates
+                    if self._config.sample_rate_hz <= 500:
+                        max_samples = int(self._config.sample_rate_hz * (self._config.timeline_seconds + 5))
+                    else:  # High sample rates - more aggressive memory management
+                        max_samples = int(self._config.sample_rate_hz * (self._config.timeline_seconds + 2))
+                    
+                    if len(buffer_data) > max_samples:
+                        del buffer_data[:-max_samples]
+                        del buffer_time[:-max_samples]
+        finally:
+            # Write any remaining CSV batch data
+            if csv_batch_data and self._cache_writer:
+                self._cache_writer.write_batch(csv_batch_time, csv_batch_data)
 
 

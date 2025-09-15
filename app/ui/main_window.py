@@ -7,16 +7,16 @@ import numpy as np
 import pyqtgraph as pg
 from PyQt6 import QtWidgets, QtCore
 
-from app.core.controller import AppController
+from app.core.streaming_controller import StreamingController
 
 
 class MainWindow(QtWidgets.QMainWindow):
-    def __init__(self, controller: Optional[AppController] = None, parent: Optional[QtWidgets.QWidget] = None) -> None:
+    def __init__(self, controller: Optional[StreamingController] = None, parent: Optional[QtWidgets.QWidget] = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Flash Data Logger")
         self.resize(1200, 800)
 
-        self.controller = controller or AppController()
+        self.controller = controller or StreamingController()
 
         central = QtWidgets.QWidget(self)
         root_layout = QtWidgets.QVBoxLayout(central)
@@ -51,13 +51,13 @@ class MainWindow(QtWidgets.QMainWindow):
         # Plot controls
         self.spinbox_y_max = QtWidgets.QDoubleSpinBox(controls)
         self.spinbox_y_max.setRange(0.1, 100.0)
-        self.spinbox_y_max.setValue(5.0)
+        self.spinbox_y_max.setValue(5.0)  # Match default ±5V range
         self.spinbox_y_max.setSuffix(" V")
         self.spinbox_y_max.setDecimals(1)
         
         self.spinbox_y_min = QtWidgets.QDoubleSpinBox(controls)
         self.spinbox_y_min.setRange(-100.0, -0.1)
-        self.spinbox_y_min.setValue(-5.0)
+        self.spinbox_y_min.setValue(-5.0)  # Match default ±5V range
         self.spinbox_y_min.setSuffix(" V")
         self.spinbox_y_min.setDecimals(1)
         
@@ -92,7 +92,7 @@ class MainWindow(QtWidgets.QMainWindow):
         ]
         for label, enum_val in ranges:
             self.combo_range.addItem(label, userData=enum_val)
-        self.combo_range.setCurrentIndex(7)  # ±5 V
+        self.combo_range.setCurrentIndex(7)  # ±5 V (changed back to test persistent configuration theory)
 
         self.combo_resolution = QtWidgets.QComboBox(controls)
         for bits in (8, 12, 14, 15, 16):
@@ -100,7 +100,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.combo_resolution.setCurrentIndex(4)  # 16-bit
 
         self.combo_samplerate = QtWidgets.QComboBox(controls)
-        for hz in (10, 50, 100, 200, 500, 1000, 2000, 5000):
+        for hz in (10, 50, 100, 200, 500, 1000, 2000, 5000):  # Added back high rates with streaming architecture
             self.combo_samplerate.addItem(f"{hz} Hz", userData=hz)
         self.combo_samplerate.setCurrentIndex(2)  # 100 Hz default
 
@@ -163,6 +163,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.controller.signal_status.connect(self._on_status_changed)
         self.controller.signal_plot.connect(self._on_plot_data)
+        self.controller.signal_clear_plot.connect(self._on_clear_plot)
         self.combo_channel.currentIndexChanged.connect(lambda _i: self.controller.set_channel(int(self.combo_channel.currentData())))
         self.combo_coupling.currentIndexChanged.connect(lambda _i: self.controller.set_coupling(int(self.combo_coupling.currentData())))
         self.combo_range.currentIndexChanged.connect(lambda _i: self.controller.set_voltage_range(int(self.combo_range.currentData())))
@@ -249,6 +250,14 @@ class MainWindow(QtWidgets.QMainWindow):
     def _on_status_changed(self, message: str) -> None:
         self.label_status.setText(message)
 
+    @QtCore.pyqtSlot()
+    def _on_clear_plot(self) -> None:
+        """Clear the plot data for a fresh session."""
+        self.plot_curve.setData([], [])
+        # Reset plot to show from 0 with current timeline
+        self.plot_widget.setXRange(0, self.spinbox_timeline.value(), padding=0)
+        self.plot_widget.setYRange(self.spinbox_y_min.value(), self.spinbox_y_max.value(), padding=0)
+
     @QtCore.pyqtSlot(object)
     def _on_plot_data(self, payload: object) -> None:
         data: np.ndarray
@@ -275,5 +284,6 @@ class MainWindow(QtWidgets.QMainWindow):
             
             # Keep Y axis fixed at user-specified range
             self.plot_widget.setYRange(self.spinbox_y_min.value(), self.spinbox_y_max.value(), padding=0)
+
 
 

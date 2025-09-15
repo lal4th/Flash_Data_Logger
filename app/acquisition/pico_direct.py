@@ -111,7 +111,15 @@ class PicoDirectSource(AcquisitionSource):
         self._start_time = None
         self._sample_count = 0
         self._buffer_start_sample = 0
-        self._ensure_open()
+        # Clear any existing buffer data
+        self._buf = None
+        self._buf_idx = 0
+        
+        # If device is already open, reconfigure it
+        if self._opened and self._lib is not None:
+            self._reconfigure_device()
+        else:
+            self._ensure_open()
 
     def read(self) -> Tuple[float, float]:
         self._ensure_open()
@@ -130,8 +138,10 @@ class PicoDirectSource(AcquisitionSource):
         value = float(self._buf[self._buf_idx])
         
         # Calculate proper timestamp: buffer start + position within buffer
+        # Use the desired sample rate interval, not the actual PicoScope interval
         current_sample_number = self._buffer_start_sample + self._buf_idx
-        timestamp = current_sample_number * self._actual_sample_interval_s
+        desired_interval_s = 1.0 / self._sample_rate_hz
+        timestamp = current_sample_number * desired_interval_s
         
         
         self._buf_idx += 1
@@ -188,7 +198,7 @@ class PicoDirectSource(AcquisitionSource):
             ctypes.c_int16(1),  # enabled
             ctypes.c_int32(self._coupling),
             ctypes.c_int32(self._range),
-            ctypes.c_float(0.0)  # analogue_offset
+            ctypes.c_float(0.0)  # analogue_offset - try 0.0 first
         )
         
         if status != 0:
@@ -197,25 +207,40 @@ class PicoDirectSource(AcquisitionSource):
         
         self._opened = True
 
+    def _reconfigure_device(self) -> None:
+        """Reconfigure the device with new settings."""
+        if not self._opened or self._lib is None:
+            return
+        
+        lib = self._lib
+        handle = self._handle
+        
+        # Reconfigure Channel with new settings
+        status = lib.ps4000SetChannel(
+            handle,
+            ctypes.c_int32(self._channel),
+            ctypes.c_int16(1),  # enabled
+            ctypes.c_int32(self._coupling),
+            ctypes.c_int32(self._range),
+            ctypes.c_float(0.0)  # analogue_offset - try 0.0 first
+        )
+        
+        if status != 0:
+            raise RuntimeError(f"ps4000SetChannel reconfigure failed with status: {status}")
+
     def _capture_block(self) -> None:
-        """Capture block with smart timebase selection and proper voltage conversion."""
+        """Capture block using proven smoke test approach."""
         lib = self._lib
         handle = self._handle
         assert lib is not None
 
-        # Parameters
-        no_of_samples = 1000
+        # Parameters - use adaptive block size for high sample rates
+        # At high sample rates, we need larger blocks to keep up with data rate
+        no_of_samples = 100  # Balanced block size for responsiveness and throughput
         oversample = 1
+        timebase = 8  # Use fixed timebase 8 like smoke test
         
-        # Smart timebase selection - find the best timebase for our target sample rate
-        # ps4000 timebase relationship: timebase 0=1ns, 1=2ns, 2=4ns, 3=8ns, etc.
-        # For timebase >= 3: time_interval = (timebase - 2) * 8ns
-        target_interval_ns = int(1e9 / self._sample_rate_hz)  # Convert Hz to nanoseconds
-        
-        # Find appropriate timebase
-        timebase = self._find_best_timebase(target_interval_ns, no_of_samples)
-        
-        # Get actual timing info
+        # Get actual timing info (like smoke test)
         time_interval_ns = ctypes.c_int32()
         time_units = ctypes.c_int32()
         max_samples = ctypes.c_int32()
@@ -233,22 +258,8 @@ class PicoDirectSource(AcquisitionSource):
         if status != 0:
             raise RuntimeError(f"ps4000GetTimebase2 failed with status: {status} (timebase={timebase})")
         
-        # Calculate and store actual sample interval achieved
-        actual_interval_ns = time_interval_ns.value
-        
-        # Validate the returned interval - it should be reasonable for our target sample rate
-        target_interval_ns = int(1e9 / self._sample_rate_hz)  # Convert Hz to nanoseconds
-        
-        # Accept the actual interval if it's within a reasonable range of our target
-        is_reasonable = (actual_interval_ns > 0 and 
-                        actual_interval_ns >= target_interval_ns * 0.1 and 
-                        actual_interval_ns <= target_interval_ns * 10.0)
-        
-        if is_reasonable:
-            self._actual_sample_interval_s = actual_interval_ns / 1e9  # Convert ns to seconds
-        else:
-            # ps4000GetTimebase2 returned unreasonable value, use our target interval
-            self._actual_sample_interval_s = target_interval_ns / 1e9
+        # Store actual sample interval (like smoke test)
+        self._actual_sample_interval_s = time_interval_ns.value / 1e9  # Convert ns to seconds
         
         # Set up data buffer
         buffer_length = no_of_samples
@@ -336,12 +347,14 @@ class PicoDirectSource(AcquisitionSource):
         if samples_retrieved != no_of_samples:
             pass  # Sample count mismatch but continue
         
-        # Convert to volts using proper range mapping
-        max_adc = 32767
+        # Convert to volts using the correct formula: ((adc/32768)*(+Range))
         voltage_range_v = self._get_voltage_range_volts(self._range)
+        max_adc = 32768.0  # 16-bit ADC max value
         
         raw_data = np.array([buffer[i] for i in range(samples_retrieved)], dtype=np.int16)
-        voltage_data = (raw_data.astype(np.float64) * voltage_range_v) / max_adc
+        
+        # Use correct voltage conversion formula: ((adc/32768)*(+Range))
+        voltage_data = (raw_data.astype(np.float64) / max_adc) * voltage_range_v
         
         self._buf = voltage_data
         self._buf_idx = 0
@@ -349,65 +362,33 @@ class PicoDirectSource(AcquisitionSource):
         # This ensures each buffer starts where the previous one ended
         self._buffer_start_sample = self._sample_count
 
-    def _calculate_expected_interval_ns(self, timebase: int) -> int:
-        """Calculate expected interval in nanoseconds for a given timebase."""
-        # ps4000 timebase to interval mapping:
-        # timebase 0: 1 ns, 1: 2 ns, 2: 4 ns, 3: 8 ns
-        # timebase >= 3: interval = (timebase - 2) * 8 ns
-        if timebase >= 3:
-            return (timebase - 2) * 8
-        else:
-            return 2 ** timebase  # 0=1ns, 1=2ns, 2=4ns
-
-    def _find_best_timebase(self, target_interval_ns: int, no_of_samples: int) -> int:
-        """Find the best timebase for the target sample rate."""
-        lib = self._lib
-        assert lib is not None
-        
-        # ps4000 timebase to interval mapping:
-        # timebase 0: 1 ns, 1: 2 ns, 2: 4 ns, 3: 8 ns
-        # timebase >= 3: interval = (timebase - 2) * 8 ns
-        
-        # Start with a reasonable timebase and search
-        for timebase in range(3, 50):  # Start from timebase 3 (8ns)
-            time_interval_ns = ctypes.c_int32()
-            max_samples = ctypes.c_int32()
-            
-            status = lib.ps4000GetTimebase2(
-                self._handle,
-                ctypes.c_uint32(timebase),
-                ctypes.c_int32(no_of_samples),
-                ctypes.byref(time_interval_ns),
-                ctypes.c_int16(1),  # oversample
-                ctypes.byref(max_samples),
-                ctypes.c_int32(0)  # segment_index
-            )
-            
-            if status == 0:
-                # Valid timebase found - check if it's close to our target
-                actual_interval = time_interval_ns.value
-                if actual_interval >= target_interval_ns * 0.5:  # Within reasonable range
-                    return timebase
-        
-        # Fallback to our known working timebase from smoke test
-        return 8
 
     def _get_voltage_range_volts(self, range_enum: int) -> float:
-        """Convert ps4000 range enum to voltage range in volts."""
-        # ps4000 voltage range mapping (from UI and documentation)
+        """Convert ps4000 range enum to voltage range in volts for conversion formula."""
+        # ps4000 voltage range mapping - use full range for conversion
+        # The correct formula is: ((adc/32768)*(+Range))
+        # This gives the actual voltage range from -Range to +Range
         range_map = {
-            0: 0.010,   # ±10 mV
-            1: 0.020,   # ±20 mV  
-            2: 0.050,   # ±50 mV
-            3: 0.100,   # ±100 mV
-            4: 0.200,   # ±200 mV
-            5: 0.500,   # ±500 mV
-            6: 1.0,     # ±1 V
-            7: 5.0,     # ±5 V
-            8: 10.0,    # ±10 V
-            9: 20.0,    # ±20 V
+            0: 0.010,   # ±10 mV -> use 10 mV
+            1: 0.020,   # ±20 mV -> use 20 mV
+            2: 0.050,   # ±50 mV -> use 50 mV
+            3: 0.100,   # ±100 mV -> use 100 mV
+            4: 0.200,   # ±200 mV -> use 200 mV
+            5: 0.500,   # ±500 mV -> use 500 mV
+            6: 1.0,     # ±1 V -> use 1.0 V
+            7: 5.0,     # ±5 V -> use 5.0 V
+            8: 10.0,    # ±10 V -> use 10.0 V
+            9: 20.0,    # ±20 V -> use 20.0 V
         }
         return range_map.get(range_enum, 5.0)  # Default to ±5V
+
+    def reset_session(self) -> None:
+        """Reset all session-related state for a fresh start."""
+        self._start_time = None
+        self._sample_count = 0
+        self._buffer_start_sample = 0
+        self._buf = None
+        self._buf_idx = 0
 
     def close(self) -> None:
         if self._opened and self._lib is not None:

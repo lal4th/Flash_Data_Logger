@@ -28,29 +28,6 @@ class AcquisitionSource(ABC):
         return None
 
 
-class DummySineSource(AcquisitionSource):
-    def __init__(self) -> None:
-        self._sample_rate_hz = 100
-        self._t0 = time.perf_counter()
-
-    def configure(
-        self,
-        *,
-        sample_rate_hz: int,
-        channel: int = 0,
-        coupling: int = 1,
-        voltage_range: int = 7,
-        resolution_bits: int = 16,
-    ) -> None:
-        self._sample_rate_hz = sample_rate_hz
-        self._t0 = time.perf_counter()
-
-    def read(self) -> Tuple[float, float]:
-        now = time.perf_counter()
-        t = now - self._t0
-        # 2 Hz sine with small noise
-        value = math.sin(2.0 * math.pi * 2.0 * t) + 0.05 * math.sin(2.0 * math.pi * 50.0 * t)
-        return value, now
 
 
 class DeviceDetectionResult:
