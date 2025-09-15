@@ -295,7 +295,7 @@ class AppController(QtCore.QObject):
             buffer_time.append(timestamp)
             buffer_data.append(value)
             
-            # Debug: show first few data points
+            # Show first few data points in status
             if len(buffer_data) <= 5:
                 self.signal_status.emit(f"Data point {len(buffer_data)}: {value:.4f}V at {timestamp:.6f}s")
 

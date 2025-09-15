@@ -119,7 +119,6 @@ class PicoDirectSource(AcquisitionSource):
             try:
                 self._capture_block()
             except Exception as e:
-                print(f"Capture block error: {e}")
                 return 0.0, 0.0
         if self._buf is None or len(self._buf) == 0:
             return 0.0, 0.0
@@ -134,11 +133,11 @@ class PicoDirectSource(AcquisitionSource):
         current_sample_number = self._buffer_start_sample + self._buf_idx
         timestamp = current_sample_number * self._actual_sample_interval_s
         
+        
         self._buf_idx += 1
         
-        # Only increment global sample count when we finish this buffer
-        if self._buf_idx >= len(self._buf):
-            self._sample_count = current_sample_number + 1
+        # Update global sample count continuously
+        self._sample_count = current_sample_number + 1
         
         return value, timestamp
 
@@ -237,23 +236,19 @@ class PicoDirectSource(AcquisitionSource):
         # Calculate and store actual sample interval achieved
         actual_interval_ns = time_interval_ns.value
         
-        # Validate the returned interval - it should be reasonable for the timebase
-        # For timebase 3: expected ~8ns, for timebase 8: expected ~48ns, etc.
-        expected_interval_ns = self._calculate_expected_interval_ns(timebase)
+        # Validate the returned interval - it should be reasonable for our target sample rate
+        target_interval_ns = int(1e9 / self._sample_rate_hz)  # Convert Hz to nanoseconds
+        
+        # Accept the actual interval if it's within a reasonable range of our target
         is_reasonable = (actual_interval_ns > 0 and 
-                        actual_interval_ns >= expected_interval_ns * 0.1 and 
-                        actual_interval_ns <= expected_interval_ns * 10.0)
+                        actual_interval_ns >= target_interval_ns * 0.1 and 
+                        actual_interval_ns <= target_interval_ns * 10.0)
         
         if is_reasonable:
             self._actual_sample_interval_s = actual_interval_ns / 1e9  # Convert ns to seconds
-            actual_sample_rate = int(1e9 / actual_interval_ns)
         else:
-            # ps4000GetTimebase2 returned unreasonable value, use direct calculation
-            # For ps4000: timebase 3 = 8ns, 4 = 16ns, 5 = 32ns, etc.
-            calculated_interval_ns = expected_interval_ns
-            
-            self._actual_sample_interval_s = calculated_interval_ns / 1e9
-            actual_sample_rate = int(1e9 / calculated_interval_ns)
+            # ps4000GetTimebase2 returned unreasonable value, use our target interval
+            self._actual_sample_interval_s = target_interval_ns / 1e9
         
         # Set up data buffer
         buffer_length = no_of_samples
@@ -331,7 +326,7 @@ class PicoDirectSource(AcquisitionSource):
         
         # Check for buffer overflow
         if overflow.value != 0:
-            print(f"Warning: Buffer overflow detected (overflow={overflow.value})")
+            pass  # Buffer overflow detected but continue
         
         # Validate we got the expected number of samples
         samples_retrieved = no_of_samples_collected.value
@@ -339,7 +334,7 @@ class PicoDirectSource(AcquisitionSource):
             raise RuntimeError("No samples retrieved from device")
         
         if samples_retrieved != no_of_samples:
-            print(f"Warning: Expected {no_of_samples} samples, got {samples_retrieved}")
+            pass  # Sample count mismatch but continue
         
         # Convert to volts using proper range mapping
         max_adc = 32767
@@ -350,7 +345,8 @@ class PicoDirectSource(AcquisitionSource):
         
         self._buf = voltage_data
         self._buf_idx = 0
-        # Store the base timestamp for this buffer
+        # Store the base timestamp for this buffer - use the current sample count
+        # This ensures each buffer starts where the previous one ended
         self._buffer_start_sample = self._sample_count
 
     def _calculate_expected_interval_ns(self, timebase: int) -> int:
