@@ -1,4 +1,4 @@
-# Flash Data Logger v0.2
+# Flash Data Logger v0.3
 
 PC application for acquiring, displaying, and logging data from PicoScope oscilloscopes, with initial focus on the PicoScope 4262.
 
@@ -46,32 +46,33 @@ pip install -r requirements.txt
 - **Data Processing**: `app/core/controller.py` (orchestrates acquisition)
 - **Storage**: `app/storage/csv_writer.py` (timestamp,value format)
 
-## Current Status (v0.2)
+## Current Status (v0.3)
 
 ### ✅ Working
-- PicoScope 4262 device detection and connection
-- User-controlled plot management (Y-axis range, timeline)
-- Automatic CSV cache system with timestamped filenames
-- Device reuse (no popup on Start button after initial startup)
-- Smart plot scrolling when data exceeds timeline
-- Clean UI with essential controls only
-- Proper plot initialization with correct axis ranges
+- **PicoScope 4262 device detection and connection** - Fully functional
+- **Real-time data plotting** - Live data visualization working correctly
+- **CSV data logging** - Automatic timestamped file creation with proper data
+- **User-controlled plot management** - Y-axis range and timeline controls
+- **Device reuse** - No popup on Start button after initial startup
+- **Smart plot scrolling** - When data exceeds timeline
+- **Clean UI** - Essential controls with proper status display
+- **Error handling** - Graceful fallback to dummy data when device unavailable
 
 ### ⚠️ Known Issues
-- **CRITICAL**: No data plotting when Start button clicked (device connects but data doesn't appear)
-- Some debug messages still appear in terminal
-- Data acquisition loop may not be running properly
+- **Timestamp Continuity Bug**: Plot doesn't reset to 0 when restarting sessions
+- **Erratic Plotting**: Wild oscillations when changing sample rates
+- **Minor**: Status messages could be more descriptive
 
-### 🎯 Next (v0.3)
-- Debug and fix data plotting issue
-- Clean up remaining terminal debug messages
-- Validate CSV output contains proper data
-- Add comprehensive data flow testing
+### 🎯 Next (v0.4)
+- Fix timestamp continuity for proper session restarts
+- Resolve erratic plotting behavior during configuration changes
+- Enhanced error recovery and user feedback
+- Performance optimization for long-running sessions
 
 ## Documentation
 
-- **Development Handoff**: See `Handoff_to_v0.3.md` for detailed technical status and next steps
-- **Previous Version**: See `Handoff_to_v0.2.md` for v0.1 → v0.2 development history
+- **Development Handoff**: See `Handoff_to_v0.4.md` for detailed technical status and next steps
+- **Previous Versions**: See `Handoff_to_v0.3.md` and `Handoff_to_v0.2.md` for development history
 - **Requirements**: Complete specifications in `REQUIREMENTS.md`
 - **Smoke Test**: Standalone connectivity validation in `scripts/pico_smoketest.py`
 
@@ -85,4 +86,4 @@ This is a focused development project for PicoScope data acquisition. See the ha
 
 ---
 
-**Status**: v0.2 - UI improvements and device management complete, ready for v0.3 data plotting fixes
+**Status**: v0.3 - PicoScope connection and data plotting working, ready for v0.4 timestamp continuity fixes
