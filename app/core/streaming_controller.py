@@ -571,9 +571,10 @@ class StreamingController(QtCore.QObject):
                 offset_adjusted_a = channel_a_value + channel_a_offset
                 offset_adjusted_b = channel_b_value + channel_b_offset
                 
-                # Process the offset-adjusted values
-                processed_a = self._pipeline.process(offset_adjusted_a)
-                processed_b = self._pipeline.process(offset_adjusted_b)
+                # For now, bypass processing pipeline to avoid voltage smoothing issues
+                # TODO: Implement proper multi-channel processing pipeline
+                processed_a = offset_adjusted_a
+                processed_b = offset_adjusted_b
                 
                 processed_data.append((timestamp, processed_a, processed_b))
                 self._samples_processed += 1
@@ -713,13 +714,17 @@ class StreamingController(QtCore.QObject):
                     self._accumulated_plot_data_b = self._accumulated_plot_data_b[excess:]
                     self._accumulated_plot_timestamps = self._accumulated_plot_timestamps[excess:]
                 
-                # Convert to numpy arrays and emit
+                # Convert to numpy arrays and emit based on mode
                 data_a = np.array(self._accumulated_plot_data_a, dtype=float)
                 data_b = np.array(self._accumulated_plot_data_b, dtype=float)
                 time_axis = np.array(self._accumulated_plot_timestamps, dtype=float)
                 
-                # Emit multi-channel plot data
-                self.signal_plot.emit((data_a, data_b, time_axis))
+                if self._config.multi_channel_mode:
+                    # Emit multi-channel plot data: (data_a, data_b, time_axis)
+                    self.signal_plot.emit((data_a, data_b, time_axis))
+                else:
+                    # Emit single-channel plot data: (data, time_axis) - use Channel A data
+                    self.signal_plot.emit((data_a, time_axis))
                 
         except Exception as e:
             self.signal_status.emit(f"Plot update error: {e}")

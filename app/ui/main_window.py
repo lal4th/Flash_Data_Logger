@@ -41,6 +41,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.button_save_csv = QtWidgets.QPushButton("Save CSV to...", controls)
         
+        # v0.7 Multi-channel mode toggle
+        self.checkbox_multi_channel = QtWidgets.QCheckBox("Multi-Channel Mode", controls)
+        self.checkbox_multi_channel.setToolTip("Enable simultaneous Channel A and B acquisition")
+        
         # Cache directory setting
         self.lineedit_cache_dir = QtWidgets.QLineEdit(str(Path.cwd() / "cache"))
         self.button_browse_cache = QtWidgets.QPushButton("Browse…", controls)
@@ -119,6 +123,7 @@ class MainWindow(QtWidgets.QMainWindow):
         
         controls_layout.addRow(button_row)
         controls_layout.addRow(zero_offset_row)
+        controls_layout.addRow(self.checkbox_multi_channel)
         controls_layout.addRow("Channel:", self.combo_channel)
         controls_layout.addRow("Coupling:", self.combo_coupling)
         controls_layout.addRow("Range:", self.combo_range)
@@ -167,6 +172,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.spinbox_y_min.valueChanged.connect(self._on_y_range_changed)
         self.spinbox_timeline.valueChanged.connect(self._on_timeline_changed)
         self.combo_samplerate.currentIndexChanged.connect(self._on_samplerate_changed)
+        self.checkbox_multi_channel.toggled.connect(self._on_multi_channel_toggled)
 
         self.controller.signal_status.connect(self._on_status_changed)
         self.controller.signal_plot.connect(self._on_plot_data)
@@ -269,6 +275,24 @@ class MainWindow(QtWidgets.QMainWindow):
     def _on_samplerate_changed(self, _index: int) -> None:
         self.controller.set_sample_rate(int(self.combo_samplerate.currentData()))
 
+    def _on_multi_channel_toggled(self, enabled: bool) -> None:
+        """Handle multi-channel mode toggle."""
+        self.controller.set_multi_channel_mode(enabled)
+        if enabled:
+            # Configure both channels with current settings
+            self.controller.set_channel_a_config(
+                enabled=True,
+                coupling=int(self.combo_coupling.currentData()),
+                voltage_range=int(self.combo_range.currentData()),
+                offset=0.0
+            )
+            self.controller.set_channel_b_config(
+                enabled=True,
+                coupling=int(self.combo_coupling.currentData()),
+                voltage_range=int(self.combo_range.currentData()),
+                offset=0.0
+            )
+
     # ----- Signals from controller -----
     @QtCore.pyqtSlot(str)
     def _on_status_changed(self, message: str) -> None:
@@ -284,9 +308,19 @@ class MainWindow(QtWidgets.QMainWindow):
 
     @QtCore.pyqtSlot(object)
     def _on_plot_data(self, payload: object) -> None:
-        data: np.ndarray
-        time_axis: np.ndarray
-        data, time_axis = payload  # type: ignore[assignment]
+        # Handle both single-channel and multi-channel data
+        if isinstance(payload, tuple) and len(payload) == 3:
+            # Multi-channel data: (timestamps, channel_a_data, channel_b_data)
+            time_axis, channel_a_data, channel_b_data = payload
+            # For now, just plot Channel A data (we'll add separate plots later)
+            data = channel_a_data
+        elif isinstance(payload, tuple) and len(payload) == 2:
+            # Single-channel data: (data, time_axis)
+            data, time_axis = payload
+        else:
+            # Fallback for unexpected format
+            return
+        
         if data.size == 0:
             return
         
