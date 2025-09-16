@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import Optional, List, Tuple
 
@@ -165,7 +166,50 @@ class MainWindow(QtWidgets.QMainWindow):
                 except Exception:
                     pass
         QtWidgets.QApplication.instance().aboutToQuit.connect(_on_about_to_quit)  # type: ignore[arg-type]
+        
+        # Connect to controller signals for plot updates
+        self.controller.signal_status.connect(self._on_status_update)
+        
+        # Start a timer to update plots with data from the streaming controller
+        self._plot_update_timer = QtCore.QTimer()
+        self._plot_update_timer.timeout.connect(self._update_plots)
+        self._plot_update_timer.start(100)  # Update every 100ms (10 Hz)
 
+    def _on_status_update(self, message: str) -> None:
+        """Handle status updates from the controller."""
+        # You can add status display logic here if needed
+        pass
+
+    def _update_plots(self) -> None:
+        """Update all plots with current data from the streaming controller."""
+        if not hasattr(self.controller, '_ram_buffer') or not self.controller._ram_buffer:
+            return
+        
+        # Get the latest data from the streaming controller
+        with self.controller._ram_buffer_lock:
+            if not self.controller._ram_buffer:
+                return
+            # Get the last data point
+            latest_data = self.controller._ram_buffer[-1]
+        
+        timestamp, channel_a_value, channel_b_value = latest_data[:3]
+        
+        # Update physical channel plots
+        for row, col, plot_panel in self._plot_panels:
+            if plot_panel.channel == 'A':
+                plot_panel.update_data(timestamp, channel_a_value)
+            elif plot_panel.channel == 'B':
+                plot_panel.update_data(timestamp, channel_b_value)
+            elif plot_panel.channel == 'MATH':
+                # Get math channel value from the streaming controller
+                math_channels = self.controller.get_math_channels()
+                if plot_panel.config.title in math_channels:
+                    # Get the latest math channel calculation from the stored results
+                    if hasattr(self.controller, '_math_results') and plot_panel.config.title in self.controller._math_results:
+                        math_value = self.controller._math_results[plot_panel.config.title]
+                        # Skip NaN values - don't plot them
+                        if not (math.isnan(math_value) or math.isinf(math_value)):
+                            plot_panel.update_data(timestamp, math_value)
 
     # ----- Controller callbacks -----
     def _on_start_clicked(self) -> None:
@@ -332,7 +376,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _add_plot_to_grid(self, cfg: 'PlotConfig') -> None:
         print(f"Adding plot to grid: {cfg.channel}")
-        # Check if a plot for this channel already exists
+        # Check if a plot for this channel already exists (only for physical channels A and B)
         if cfg.channel in ['A', 'B']:
             for r in range(len(self.grid_state)):
                 for c in range(len(self.grid_state[r])):
@@ -342,6 +386,27 @@ class MainWindow(QtWidgets.QMainWindow):
                         QtWidgets.QMessageBox.warning(self, "Duplicate Channel", 
                             f"A Channel {cfg.channel} plot already exists. Only one plot per channel is allowed.")
                         return
+        
+        # For math channels, add them to the streaming controller
+        if cfg.channel == 'MATH' and hasattr(cfg, 'formula') and cfg.formula:
+            # Create math channel configuration
+            from app.processing.math_engine import MathChannelConfig
+            math_config = MathChannelConfig(
+                name=cfg.title,
+                formula=cfg.formula,
+                enabled=True,
+                y_min=cfg.y_min,
+                y_max=cfg.y_max,
+                y_label=cfg.y_label,
+                color=cfg.color
+            )
+            
+            # Add to streaming controller
+            success = self.controller.add_math_channel(cfg.title, cfg.formula, math_config)
+            if not success:
+                QtWidgets.QMessageBox.warning(self, "Invalid Formula", 
+                    f"Failed to add math channel '{cfg.title}': Invalid formula '{cfg.formula}'")
+                return
         
         # Determine grid size based on number of plots
         num_plots = len(self._plot_panels)
@@ -440,7 +505,7 @@ class MainWindow(QtWidgets.QMainWindow):
 # ----- Data classes & UI components -----
 class PlotConfig:
     def __init__(self, channel: str, coupling: int, voltage_range: int,
-                 y_min: float, y_max: float, y_label: str, title: str, color: QtGui.QColor) -> None:
+                 y_min: float, y_max: float, y_label: str, title: str, color: QtGui.QColor, formula: str = "") -> None:
         self.channel = channel  # 'A' | 'B' | 'MATH'
         self.coupling = coupling
         self.voltage_range = voltage_range
@@ -449,6 +514,7 @@ class PlotConfig:
         self.y_label = y_label
         self.title = title
         self.color = color
+        self.formula = formula  # For math channels
 
 
 class PlotPanel(QtWidgets.QWidget):
@@ -489,6 +555,68 @@ class PlotPanel(QtWidgets.QWidget):
         
         # Simple double-click detection
         self.plot.scene().sigMouseClicked.connect(self._on_mouse_clicked)  # type: ignore[attr-defined]
+        
+        # Data storage for plotting
+        self._data_buffer = []
+        self._time_buffer = []
+
+    def update_data(self, timestamp: float, value: float) -> None:
+        """Update the plot with new data point."""
+        # Ensure we have valid numeric values
+        try:
+            timestamp = float(timestamp)
+            value = float(value)
+        except (ValueError, TypeError):
+            return  # Skip invalid data
+        
+        self._time_buffer.append(timestamp)
+        self._data_buffer.append(value)
+        
+        # Keep only the last 1000 points for performance
+        if len(self._time_buffer) > 1000:
+            self._time_buffer = self._time_buffer[-1000:]
+            self._data_buffer = self._data_buffer[-1000:]
+        
+        # Update the plot
+        if self._time_buffer and self._data_buffer:
+            # Check if curve still exists before updating
+            try:
+                self.curve.setData(self._time_buffer, self._data_buffer)
+            except RuntimeError as e:
+                if "wrapped C/C++ object" in str(e):
+                    # Curve was deleted, recreate it
+                    self.curve = self.plot.plot(pen=pg.mkPen(color=self.config.color, width=2))
+                    self.curve.setData(self._time_buffer, self._data_buffer)
+                else:
+                    raise
+            
+            # Scroll X range
+            if self._time_buffer:
+                max_time = float(self._time_buffer[-1])
+                # Use global timeline from main window if available
+                main = self.window()
+                if isinstance(main, MainWindow):
+                    timeline = main.spinbox_timeline.value()
+                else:
+                    timeline = 10.0  # Default timeline
+                
+                if max_time <= timeline:
+                    self.plot.setXRange(0, timeline, padding=0)
+                else:
+                    self.plot.setXRange(max_time - timeline, max_time, padding=0)
+                self.plot.setYRange(self.config.y_min, self.config.y_max, padding=0)
+            
+            # Update mirror window if it exists
+            if hasattr(self, '_mirror_curve') and self._mirror_curve is not None:
+                try:
+                    self._mirror_curve.setData(self._time_buffer, self._data_buffer)
+                    # Sync X range with main plot
+                    if hasattr(self, '_mirror_plot') and self._mirror_plot is not None:
+                        x_range = self.plot.getAxis('bottom').range
+                        self._mirror_plot.setXRange(x_range[0], x_range[1], padding=0)
+                except RuntimeError:
+                    # Mirror curve was deleted, clear the reference
+                    self._mirror_curve = None
 
     def _on_mouse_clicked(self, ev) -> None:
         # Simple double-click detection - open mirror window
@@ -505,6 +633,28 @@ class PlotPanel(QtWidgets.QWidget):
             result = dialog.exec()
             if result == QtWidgets.QDialog.DialogCode.Accepted:
                 new_config = dialog.get_config()
+                
+                # Handle math channel updates
+                if self.config.channel == 'MATH' and new_config.channel == 'MATH':
+                    # Update math channel configuration in streaming controller
+                    from app.processing.math_engine import MathChannelConfig
+                    math_config = MathChannelConfig(
+                        name=new_config.title,
+                        formula=new_config.formula,
+                        enabled=True,
+                        y_min=new_config.y_min,
+                        y_max=new_config.y_max,
+                        y_label=new_config.y_label,
+                        color=new_config.color
+                    )
+                    
+                    # Update the math channel in the controller
+                    success = main.controller.update_math_channel(self.config.title, new_config.title, new_config.formula, math_config)
+                    if not success:
+                        QtWidgets.QMessageBox.warning(main, "Invalid Formula", 
+                            f"Failed to update math channel '{new_config.title}': Invalid formula '{new_config.formula}'")
+                        return
+                
                 # Update this plot's configuration
                 self.config = new_config
                 self.channel = new_config.channel
@@ -558,42 +708,12 @@ class PlotPanel(QtWidgets.QWidget):
         self._mirror_window.show()
         self._mirror_window.raise_()
 
-    def update_data(self, time_axis: np.ndarray, data: np.ndarray) -> None:
-        if data.size == 0:
-            return
-        # Check if curve still exists before updating
-        try:
-            self.curve.setData(time_axis, data)
-        except RuntimeError as e:
-            if "wrapped C/C++ object" in str(e):
-                # Curve was deleted, recreate it
-                self.curve = self.plot.plot(pen=pg.mkPen(color=self.config.color, width=2))
-                self.curve.setData(time_axis, data)
-            else:
-                raise
-        # Scroll X range
-        if time_axis.size > 0:
-            max_time = float(time_axis[-1])
-            # Use global timeline from main window if available
-            main = self.window()
-            if isinstance(main, MainWindow):
-                timeline = main.spinbox_timeline.value()
-            else:
-                timeline = 10.0  # Default timeline
-            
-            if max_time <= timeline:
-                self.plot.setXRange(0, timeline, padding=0)
-            else:
-                self.plot.setXRange(max_time - timeline, max_time, padding=0)
-            self.plot.setYRange(self.config.y_min, self.config.y_max, padding=0)
-        if hasattr(self, '_mirror_curve') and self._mirror_curve is not None:
-            self._mirror_curve.setData(time_axis, data)
-            # Sync X range with main plot
-            if hasattr(self, '_mirror_plot') and self._mirror_plot is not None:
-                x_range = self.plot.getAxis('bottom').range
-                self._mirror_plot.setXRange(x_range[0], x_range[1], padding=0)
 
     def clear(self) -> None:
+        # Clear data buffers
+        self._time_buffer.clear()
+        self._data_buffer.clear()
+        
         try:
             self.curve.setData([], [])
         except RuntimeError as e:
@@ -646,15 +766,26 @@ class PlotConfigDialog(QtWidgets.QDialog):
         self.combo_channel.addItems(["A", "B", "Math"])
         layout.addRow("Channel:", self.combo_channel)
 
+        # Create containers for coupling and range to hide entire rows
+        self.coupling_container = QtWidgets.QWidget(self)
+        coupling_layout = QtWidgets.QHBoxLayout(self.coupling_container)
+        coupling_layout.setContentsMargins(0, 0, 0, 0)
         self.combo_coupling = QtWidgets.QComboBox(self)
         self.combo_coupling.addItems(["DC", "AC"])
-        layout.addRow("Coupling:", self.combo_coupling)
+        coupling_layout.addWidget(self.combo_coupling)
+        coupling_layout.addStretch()  # Add stretch to align with other fields
+        layout.addRow("Coupling:", self.coupling_container)
 
+        self.range_container = QtWidgets.QWidget(self)
+        range_layout = QtWidgets.QHBoxLayout(self.range_container)
+        range_layout.setContentsMargins(0, 0, 0, 0)
         self.combo_range = QtWidgets.QComboBox(self)
         for label, enum_val in [("±10 mV",0),("±20 mV",1),("±50 mV",2),("±100 mV",3),("±200 mV",4),("±500 mV",5),("±1 V",6),("±2 V",7),("±5 V",8),("±10 V",9)]:
             self.combo_range.addItem(label, userData=enum_val)
         self.combo_range.setCurrentIndex(9)
-        layout.addRow("Range:", self.combo_range)
+        range_layout.addWidget(self.combo_range)
+        range_layout.addStretch()  # Add stretch to align with other fields
+        layout.addRow("Range:", self.range_container)
 
         self.spin_ymax = QtWidgets.QDoubleSpinBox(self); self.spin_ymax.setRange(0.1, 100.0); self.spin_ymax.setValue(10.0); self.spin_ymax.setSuffix(" V"); self.spin_ymax.setDecimals(1)
         self.spin_ymin = QtWidgets.QDoubleSpinBox(self); self.spin_ymin.setRange(-100.0, -0.1); self.spin_ymin.setValue(-10.0); self.spin_ymin.setSuffix(" V"); self.spin_ymin.setDecimals(1)
@@ -666,6 +797,17 @@ class PlotConfigDialog(QtWidgets.QDialog):
 
         self.edit_title = QtWidgets.QLineEdit(self)
         layout.addRow("Plot Title:", self.edit_title)
+
+        # Formula input field for Math channels
+        self.edit_formula = QtWidgets.QLineEdit(self)
+        self.edit_formula.setPlaceholderText("Enter formula (e.g., A + B, A * B, sqrt(A))")
+        self.edit_formula.setToolTip("Use A and B as variables. Supported functions: +, -, *, /, ^, sqrt(), sin(), cos(), log(), etc.")
+        layout.addRow("Formula:", self.edit_formula)
+        
+        # Formula validation label
+        self.label_formula_status = QtWidgets.QLabel("")
+        self.label_formula_status.setStyleSheet("color: red; font-size: 10px;")
+        layout.addRow("", self.label_formula_status)
 
         self.button_color = QtWidgets.QPushButton("Choose Color", self)
         # Random color assignment
@@ -697,8 +839,23 @@ class PlotConfigDialog(QtWidgets.QDialog):
 
     def _on_channel_changed(self, text: str) -> None:
         is_math = text.lower() == 'math'
-        self.combo_coupling.setVisible(not is_math)
-        self.combo_range.setVisible(not is_math)
+        
+        # Hide/show containers (which include the labels)
+        self.coupling_container.setVisible(not is_math)
+        self.range_container.setVisible(not is_math)
+        
+        # Show/hide formula fields
+        self.edit_formula.setVisible(is_math)
+        self.label_formula_status.setVisible(is_math)
+        
+        # Connect formula validation when Math is selected
+        if is_math:
+            self.edit_formula.textChanged.connect(self._validate_formula)
+        else:
+            try:
+                self.edit_formula.textChanged.disconnect(self._validate_formula)
+            except TypeError:
+                pass  # Not connected yet
 
     def _update_default_labels(self) -> None:
         ch = self.combo_channel.currentText().upper()
@@ -712,9 +869,37 @@ class PlotConfigDialog(QtWidgets.QDialog):
             # Always update title to match channel selection
             self.edit_title.setText('Math Channel')
 
+    def _validate_formula(self) -> None:
+        """Validate the current formula and update status label."""
+        formula = self.edit_formula.text().strip()
+        
+        if not formula:
+            self.label_formula_status.setText("")
+            return
+        
+        # Import math engine for validation
+        try:
+            from app.processing.math_engine import MathEngine
+            engine = MathEngine()
+            is_valid, error_msg = engine.validate_formula(formula)
+            
+            if is_valid:
+                self.label_formula_status.setText("✓ Formula is valid")
+                self.label_formula_status.setStyleSheet("color: green; font-size: 10px;")
+            else:
+                self.label_formula_status.setText(f"✗ {error_msg}")
+                self.label_formula_status.setStyleSheet("color: red; font-size: 10px;")
+        except Exception as e:
+            self.label_formula_status.setText(f"✗ Validation error: {e}")
+            self.label_formula_status.setStyleSheet("color: red; font-size: 10px;")
+
     def set_config(self, config: PlotConfig) -> None:
         """Set the dialog fields from an existing config."""
-        # Set channel
+        # Set formula first (for math channels) before changing channel
+        if hasattr(config, 'formula'):
+            self.edit_formula.setText(config.formula)
+        
+        # Set channel (this will trigger _on_channel_changed)
         channel_index = self.combo_channel.findText(config.channel)
         if channel_index >= 0:
             self.combo_channel.setCurrentIndex(channel_index)
@@ -767,6 +952,7 @@ class PlotConfigDialog(QtWidgets.QDialog):
         channel = 'MATH' if ch_text == 'MATH' else ch_text
         coupling = 1 if self.combo_coupling.currentText() == 'DC' else 0
         voltage_range = int(self.combo_range.currentData() or 9)
+        formula = self.edit_formula.text().strip() if ch_text == 'MATH' else ""
         return PlotConfig(
             channel=channel,
             coupling=coupling,
@@ -776,6 +962,7 @@ class PlotConfigDialog(QtWidgets.QDialog):
             y_label=self.edit_ylabel.text(),
             title=self.edit_title.text(),
             color=self._color,
+            formula=formula,
         )
 
 

@@ -10,7 +10,7 @@ import time
 import queue
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Dict
 from datetime import datetime
 import collections
 
@@ -20,6 +20,7 @@ from PyQt6 import QtCore
 from app.acquisition.source import AcquisitionSource
 from app.acquisition.pico_direct import PicoDirectSource, test_device_connection
 from app.processing.pipeline import ProcessingPipeline
+from app.processing.math_engine import MathEngine, MathChannelConfig
 from app.storage.csv_writer import CsvWriter
 
 
@@ -51,6 +52,8 @@ class StreamingConfig:
     channel_b_coupling: int = 1
     channel_b_range: int = 8
     channel_b_offset: float = 0.0
+    # v0.9 Math channel settings
+    math_channels: dict = None  # Will store math channel configurations
 
 
 class StreamingController(QtCore.QObject):
@@ -66,6 +69,7 @@ class StreamingController(QtCore.QObject):
         self._source: Optional[AcquisitionSource] = None
         self._pico_source: Optional[PicoDirectSource] = None
         self._pipeline = ProcessingPipeline()
+        self._math_engine = MathEngine()
         
         # Streaming architecture components
         self._acquisition_thread: Optional[threading.Thread] = None
@@ -96,6 +100,9 @@ class StreamingController(QtCore.QObject):
         # v0.7 Multi-channel data structures
         self._multi_channel_data: List[Tuple[float, float, float]] = []  # (timestamp, channel_a, channel_b)
         self._multi_channel_lock = threading.Lock()
+        
+        # v0.9 Math channel results storage
+        self._math_results: Dict[str, float] = {}
 
     # ----- Config setters -----
     def set_sample_rate(self, hz: int) -> None:
@@ -190,6 +197,111 @@ class StreamingController(QtCore.QObject):
                 'offset': self._config.channel_b_offset
             }
         }
+
+    # v0.9 Math channel management methods
+    def add_math_channel(self, name: str, formula: str, config: Optional[MathChannelConfig] = None) -> bool:
+        """Add a new math channel with the given formula."""
+        if self._config.math_channels is None:
+            self._config.math_channels = {}
+        
+        success = self._math_engine.add_math_channel(name, formula, config)
+        if success:
+            self._config.math_channels[name] = {
+                'formula': formula,
+                'enabled': config.enabled if config else True,
+                'y_min': config.y_min if config else -10.0,
+                'y_max': config.y_max if config else 10.0,
+                'y_label': config.y_label if config else "",
+                'color': config.color if config else None
+            }
+            self.signal_status.emit(f"Math channel '{name}' added: {formula}")
+        else:
+            self.signal_status.emit(f"Failed to add math channel '{name}': Invalid formula")
+        
+        return success
+    
+    def remove_math_channel(self, name: str) -> None:
+        """Remove a math channel."""
+        if self._config.math_channels and name in self._config.math_channels:
+            del self._config.math_channels[name]
+            self._math_engine.remove_math_channel(name)
+            self.signal_status.emit(f"Math channel '{name}' removed")
+    
+    def update_math_channel(self, name: str, formula: str = None, enabled: bool = None, 
+                           y_min: float = None, y_max: float = None, y_label: str = None) -> bool:
+        """Update an existing math channel configuration."""
+        if self._config.math_channels is None or name not in self._config.math_channels:
+            return False
+        
+        # Update formula if provided
+        if formula is not None:
+            success = self._math_engine.add_math_channel(name, formula)
+            if not success:
+                return False
+            self._config.math_channels[name]['formula'] = formula
+        
+        # Update other properties
+        if enabled is not None:
+            self._config.math_channels[name]['enabled'] = enabled
+        if y_min is not None:
+            self._config.math_channels[name]['y_min'] = y_min
+        if y_max is not None:
+            self._config.math_channels[name]['y_max'] = y_max
+        if y_label is not None:
+            self._config.math_channels[name]['y_label'] = y_label
+        
+        return True
+    
+    def get_math_channels(self) -> dict:
+        """Get all math channel configurations."""
+        return self._config.math_channels or {}
+    
+    def clear_math_channels(self) -> None:
+        """Clear all math channels."""
+        if self._config.math_channels:
+            for name in list(self._config.math_channels.keys()):
+                self._math_engine.remove_math_channel(name)
+            self._config.math_channels.clear()
+            self.signal_status.emit("All math channels cleared")
+    
+    def save_cache_csv(self, output_path: Path) -> bool:
+        """Save the current cache data to a CSV file."""
+        if not self._ram_buffer:
+            return False
+        
+        try:
+            # Create a new CSV writer for the output file
+            if self._config.multi_channel_mode:
+                channel_config = self.get_multi_channel_config()
+                math_channels = self.get_math_channels()
+                csv_writer = CsvWriter(output_path, multi_channel_mode=True, 
+                                     channel_config=channel_config, math_channels=math_channels)
+            else:
+                csv_writer = CsvWriter(output_path, multi_channel_mode=False)
+            
+            csv_writer.open()
+            
+            # Write all data from RAM buffer
+            with self._ram_buffer_lock:
+                for data_point in self._ram_buffer:
+                    if len(data_point) >= 3:
+                        timestamp, channel_a_value, channel_b_value = data_point[:3]
+                        
+                        # Get math channel values from the math engine
+                        math_values = self._math_engine.update_channel_data(channel_a_value, channel_b_value)
+                        
+                        if self._config.multi_channel_mode:
+                            csv_writer.write_multi_channel_row(timestamp, channel_a_value, channel_b_value, math_values)
+                        else:
+                            csv_writer.write_row(timestamp, channel_a_value)
+            
+            csv_writer.close()
+            self.signal_status.emit(f"CSV saved to {output_path}")
+            return True
+            
+        except Exception as e:
+            self.signal_status.emit(f"Failed to save CSV: {e}")
+            return False
 
     def zero_offset(self) -> None:
         """Zero the offset for the current channel by taking 100 samples and averaging them."""
@@ -295,7 +407,8 @@ class StreamingController(QtCore.QObject):
         if self._config.multi_channel_mode:
             # Multi-channel CSV writer with configuration
             channel_config = self.get_multi_channel_config()
-            self._csv_writer = CsvWriter(cache_filename, multi_channel_mode=True, channel_config=channel_config)
+            math_channels = self.get_math_channels()
+            self._csv_writer = CsvWriter(cache_filename, multi_channel_mode=True, channel_config=channel_config, math_channels=math_channels)
         else:
             # Single channel CSV writer (v0.6 compatibility)
             self._csv_writer = CsvWriter(cache_filename, multi_channel_mode=False)
@@ -558,8 +671,8 @@ class StreamingController(QtCore.QObject):
         
         return block_data
 
-    def _process_block(self, block_data: List[Tuple[float, float, float]]) -> List[Tuple[float, float, float]]:
-        """Process a block of multi-channel data."""
+    def _process_block(self, block_data: List[Tuple[float, float, float]]) -> List[Tuple[float, float, float, Dict[str, float]]]:
+        """Process a block of multi-channel data including math channel calculations."""
         processed_data = []
         try:
             # Get channel offsets
@@ -576,7 +689,14 @@ class StreamingController(QtCore.QObject):
                 processed_a = offset_adjusted_a
                 processed_b = offset_adjusted_b
                 
-                processed_data.append((timestamp, processed_a, processed_b))
+                # Calculate math channel values
+                math_results = self._math_engine.update_channel_data(processed_a, processed_b)
+                
+                # Store the data structure with math channel results (timestamp, channel_a, channel_b, math_results)
+                processed_data.append((timestamp, processed_a, processed_b, math_results))
+                
+                # Store math results separately for later use
+                self._math_results = math_results
                 self._samples_processed += 1
         except Exception as e:
             self.signal_status.emit(f"Block processing error: {e}")
@@ -584,10 +704,12 @@ class StreamingController(QtCore.QObject):
         
         return processed_data
 
-    def _store_block_in_ram(self, block_data: List[Tuple[float, float, float]]) -> None:
+    def _store_block_in_ram(self, block_data: List[Tuple[float, float, float, Dict[str, float]]]) -> None:
         """Store block data in RAM buffer."""
         with self._ram_buffer_lock:
-            self._ram_buffer.extend(block_data)
+            # Store only the basic channel data (first 3 elements) in RAM buffer
+            basic_data = [(d[0], d[1], d[2]) for d in block_data]
+            self._ram_buffer.extend(basic_data)
             
             # Limit RAM buffer size
             max_samples = int(self._config.ram_buffer_size_mb * 1024 * 1024 / 24)  # ~24 bytes per sample (timestamp + 2 channels)
@@ -596,7 +718,7 @@ class StreamingController(QtCore.QObject):
                 excess = len(self._ram_buffer) - max_samples
                 self._ram_buffer = self._ram_buffer[excess:]
 
-    def _queue_plot_data(self, block_data: List[Tuple[float, float, float]]) -> None:
+    def _queue_plot_data(self, block_data: List[Tuple[float, float, float, Dict[str, float]]]) -> None:
         """Queue block data for plot updates."""
         try:
             # Convert to numpy arrays for efficient plotting
@@ -610,7 +732,7 @@ class StreamingController(QtCore.QObject):
             # Plot queue is full, skip this update
             pass
 
-    def _queue_csv_data(self, block_data: List[Tuple[float, float, float]]) -> None:
+    def _queue_csv_data(self, block_data: List[Tuple[float, float, float, Dict[str, float]]]) -> None:
         """Queue block data for CSV writing."""
         try:
             # Non-blocking put
@@ -632,9 +754,15 @@ class StreamingController(QtCore.QObject):
                     channel_a_values = [d[1] for d in block_data]
                     channel_b_values = [d[2] for d in block_data]
                     
+                    # Extract math channel values if present
+                    math_values_list = []
+                    if len(block_data) > 0 and len(block_data[0]) > 3:
+                        # New format with math channels
+                        math_values_list = [d[3] for d in block_data]
+                    
                     if self._config.multi_channel_mode:
-                        # Multi-channel CSV writing
-                        self._csv_writer.write_multi_channel_batch(timestamps, channel_a_values, channel_b_values)
+                        # Multi-channel CSV writing with math channels
+                        self._csv_writer.write_multi_channel_batch(timestamps, channel_a_values, channel_b_values, math_values_list)
                     else:
                         # Single channel CSV writing (v0.6 compatibility)
                         # Use channel A values for single channel mode
