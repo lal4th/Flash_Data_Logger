@@ -1,18 +1,21 @@
-# Flash Data Logger v0.6
+# Flash Data Logger v0.7
 
-**Production-ready** PC application for high-performance real-time data acquisition, display, and logging from PicoScope oscilloscopes, with mathematically accurate voltage conversion and optimized streaming architecture for the PicoScope 4262.
+**Production-ready** PC application for high-performance real-time data acquisition, display, and logging from PicoScope oscilloscopes, with mathematically accurate voltage conversion, multi-channel support, and optimized streaming architecture for the PicoScope 4262.
 
-## 🚀 **Key Features (v0.6)**
+## 🚀 **Key Features (v0.7)**
 
+- **Multi-Channel Acquisition**: Simultaneous Channel A and B data acquisition with synchronized timestamps
 - **Mathematically Accurate Voltage Conversion**: Scientifically derived formula for precise measurements across all voltage ranges
 - **High-Performance Streaming**: Multi-threaded architecture supporting up to 5000Hz sample rates
 - **Real-time Data Acquisition**: Direct ps4000 API communication with block-based acquisition
 - **Live Plotting**: PyQt6 + pyqtgraph interface with fixed 10Hz update rate for smooth visualization
-- **Automatic CSV Caching**: Background CSV writing with timestamped files and configurable cache directory
+- **Extended CSV Export**: Multi-channel format with both Channel A and B data in single file
+- **Multi-Channel Toggle**: Easy switching between single-channel (v0.6 compatibility) and dual-channel modes
 - **Comprehensive Controls**: Channel selection, coupling (AC/DC), voltage range (±10mV to ±10V), resolution, sample rate
 - **Session Management**: Start, stop, reset with proper data clearing and CSV management
 - **Hardware Reconfiguration**: Runtime parameter changes without device restart
 - **Zero Offset Functionality**: Accurate baseline measurements with offset correction
+- **Backward Compatibility**: v0.6 functionality preserved exactly
 
 ## Quick Start
 
@@ -74,56 +77,64 @@ pip install -r requirements.txt
 
 ## 📊 **Performance Metrics**
 
-| Metric | v0.4 (Previous) | v0.5 (Current) | Improvement |
+| Metric | v0.6 (Previous) | v0.7 (Current) | Improvement |
 |--------|----------------|----------------|-------------|
-| Max Sample Rate | 1000 Hz | 5000 Hz | **5x** |
-| Plot Update Rate | Variable | Fixed 10 Hz | **Consistent** |
-| Responsiveness | 1-5 seconds | <100ms | **50x faster** |
-| Memory Usage | Unbounded | Controlled | **Stable** |
-| CSV Performance | Synchronous | Asynchronous | **Non-blocking** |
+| Max Sample Rate | 5000 Hz | 5000 Hz | **Maintained** |
+| Multi-Channel Support | Single Channel | Dual Channel | **2x channels** |
+| CSV Format | Single Channel | Multi-Channel | **Extended** |
+| Voltage Accuracy | Mathematically Correct | Mathematically Correct | **Preserved** |
+| Backward Compatibility | N/A | v0.6 Compatible | **100%** |
+| Plot Update Rate | Fixed 10 Hz | Fixed 10 Hz | **Consistent** |
+| Responsiveness | <100ms | <100ms | **Maintained** |
+| Memory Usage | Controlled | Controlled | **Stable** |
 
-## ✅ **Current Status (v0.5)**
+## ✅ **Current Status (v0.7)**
 
 ### **Fully Functional**
+- **Multi-channel acquisition** - Simultaneous Channel A and B data acquisition
 - **High-performance streaming** - Multi-threaded architecture with queues
 - **Real-time data acquisition** - Up to 5000Hz sample rates
 - **Live plotting** - Fixed 10Hz update rate with continuous lines
-- **Automatic CSV logging** - Background writing with timestamped files
+- **Extended CSV logging** - Multi-channel format with both channels
+- **Multi-channel toggle** - Easy switching between single and dual-channel modes
 - **Session management** - Proper start, stop, reset with data clearing
 - **Hardware reconfiguration** - Runtime parameter changes
-- **Accurate voltage scaling** - Correct conversion formulas
+- **Accurate voltage scaling** - Mathematically correct conversion formulas
 - **Memory management** - Controlled RAM usage with automatic flushing
+- **Backward compatibility** - v0.6 functionality preserved exactly
 
-### **⚠️ Known Limitations**
-- **±5V range saturation** - Hardware-level issue (use ±10V or ±20V for accurate readings)
-- **Single channel** - Channel A only (Channel B ready for implementation)
-- **Fixed timebase** - Uses timebase 8 for all sample rates
+### **✅ Multi-Channel Features**
+- **Dual-channel acquisition** - Channel A and B sampled simultaneously
+- **Synchronized timestamps** - Shared timing across both channels
+- **Extended CSV format** - `timestamp,Channel_A,Channel_B` format
+- **Independent configuration** - Separate settings for each channel
+- **Mode switching** - Toggle between single and multi-channel operation
 
-### **🎯 Next Development (v0.7) - Multi-Channel & Math Channel Support**
+### **🎯 Next Development (v0.8) - Enhanced UI & Separate A/B Plots**
 
-#### **Primary Goals for v0.7:**
-1. **Multi-Channel Support**
-   - Simultaneous Channel A and B acquisition
-   - Separate plot windows for each channel
-   - Independent controls for voltage range, coupling, offset
-   - Both channels recorded in CSV with timestamps
+#### **Primary Goals for v0.8:**
+1. **Separate A/B Plot Windows**
+   - Tabbed interface with dedicated Channel A and Channel B plots
+   - Independent Y-axis scaling for each channel
+   - Synchronized time axes across tabs
+   - Channel-specific styling and controls
 
-2. **Math Channel Support**
-   - Excel-style calculator bar for real-time formulas
-   - Up to 6 additional math channels (A+B, A-B, A*B, A/B, A^2, sqrt(A), etc.)
-   - Separate plot windows for each math channel
-   - All math channel values included in CSV export
+2. **Enhanced CSV Recording**
+   - Improved multi-channel CSV format with better metadata
+   - Channel selection options for export
+   - Enhanced headers with detailed configuration information
+   - Batch processing capabilities
 
-3. **Enhanced UI**
-   - Tabbed interface for multiple plots
-   - Formula editor with syntax validation
-   - Drag-and-drop channel management
-   - Configuration profiles for multi-channel setups
+3. **Improved User Experience**
+   - Enhanced multi-channel interface
+   - Visual indicators for active channels
+   - Better controls and status display
+   - Performance optimizations for dual plots
 
 ## 📚 **Documentation**
 
-- **Current Handoff**: `Handoff_to_v0.6.md` - Complete technical documentation and v0.7 roadmap
-- **Development History**: `Handoff_to_v0.4.md`, `Handoff_to_v0.3.md`, `Handoff_to_v0.2.md`
+- **Current Handoff**: `Handoff_to_v0.8.md` - Complete v0.7 multi-channel foundation and v0.8 roadmap
+- **Development History**: `Handoff_to_v0.6.md`, `Handoff_to_v0.5.md`, `Handoff_to_v0.4.md`, `Handoff_to_v0.3.md`, `Handoff_to_v0.2.md`
 - **Requirements**: Complete specifications in `REQUIREMENTS.md`
 - **Smoke Test**: Standalone connectivity validation in `scripts/pico_smoketest.py`
 
@@ -142,7 +153,7 @@ pip install -r requirements.txt
 
 ## 🤝 **Contributing**
 
-This is a production-ready application for PicoScope data acquisition. See `Handoff_to_v0.5.md` for detailed technical documentation and development priorities.
+This is a production-ready application for PicoScope data acquisition with multi-channel support. See `Handoff_to_v0.8.md` for detailed technical documentation and v0.8 development priorities.
 
 ## 📄 **License**
 
@@ -150,4 +161,4 @@ This is a production-ready application for PicoScope data acquisition. See `Hand
 
 ---
 
-**Status**: v0.6 - **Production Ready** with mathematically accurate voltage conversion and high-performance streaming architecture up to 5000Hz
+**Status**: v0.7 - **Production Ready** with multi-channel acquisition, mathematically accurate voltage conversion, and high-performance streaming architecture up to 5000Hz
