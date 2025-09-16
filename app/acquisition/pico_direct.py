@@ -219,7 +219,7 @@ class PicoDirectSource(AcquisitionSource):
         
         return value, timestamp
 
-    def _read_multi_channel(self) -> Tuple[float, float]:
+    def _read_multi_channel(self) -> Tuple[Tuple[float, float], float]:
         """Read dual-channel data (v0.7 new functionality)."""
         self._ensure_multi_channel_open()
         if self._dual_channel_buf is None or self._dual_channel_buf_idx >= len(self._dual_channel_buf[0]):
