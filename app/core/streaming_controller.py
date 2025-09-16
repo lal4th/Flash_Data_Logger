@@ -41,6 +41,16 @@ class StreamingConfig:
     ram_buffer_size_mb: int = 100  # Maximum RAM buffer size
     csv_write_interval_s: float = 1.0  # Write CSV every N seconds
     plot_update_rate_hz: float = 100.0  # Maximum plot update rate for real-time responsiveness
+    # v0.7 Multi-channel settings
+    multi_channel_mode: bool = False
+    channel_a_enabled: bool = True
+    channel_a_coupling: int = 1
+    channel_a_range: int = 8
+    channel_a_offset: float = 0.0
+    channel_b_enabled: bool = True
+    channel_b_coupling: int = 1
+    channel_b_range: int = 8
+    channel_b_offset: float = 0.0
 
 
 class StreamingController(QtCore.QObject):
@@ -66,8 +76,8 @@ class StreamingController(QtCore.QObject):
         self._data_queue = queue.Queue(maxsize=100)  # Block data queue
         self._plot_queue = queue.Queue(maxsize=10)   # Plot data queue
         
-        # RAM storage
-        self._ram_buffer: List[Tuple[float, float]] = []
+        # RAM storage - v0.7 multi-channel support
+        self._ram_buffer: List[Tuple[float, float, float]] = []  # (timestamp, channel_a, channel_b)
         self._ram_buffer_lock = threading.Lock()
         
         # CSV writing
@@ -82,6 +92,10 @@ class StreamingController(QtCore.QObject):
         
         # Channel offset storage (default 0 for both channels)
         self._channel_offsets = {0: 0.0, 1: 0.0}  # Channel A and B offsets
+        
+        # v0.7 Multi-channel data structures
+        self._multi_channel_data: List[Tuple[float, float, float]] = []  # (timestamp, channel_a, channel_b)
+        self._multi_channel_lock = threading.Lock()
 
     # ----- Config setters -----
     def set_sample_rate(self, hz: int) -> None:
@@ -136,6 +150,46 @@ class StreamingController(QtCore.QObject):
     def set_timeline(self, timeline_seconds: float) -> None:
         self._config.timeline_seconds = timeline_seconds
         self.signal_status.emit(f"Timeline: {timeline_seconds:.1f} seconds")
+
+    # v0.7 Multi-channel configuration methods
+    def set_multi_channel_mode(self, enabled: bool) -> None:
+        """Enable or disable multi-channel mode."""
+        self._config.multi_channel_mode = enabled
+        self.signal_status.emit(f"Multi-channel mode: {'ON' if enabled else 'OFF'}")
+
+    def set_channel_a_config(self, enabled: bool, coupling: int, voltage_range: int, offset: float = 0.0) -> None:
+        """Configure Channel A settings."""
+        self._config.channel_a_enabled = enabled
+        self._config.channel_a_coupling = coupling
+        self._config.channel_a_range = voltage_range
+        self._config.channel_a_offset = offset
+        self.signal_status.emit(f"Channel A: {'ON' if enabled else 'OFF'}, Range: {voltage_range}, Coupling: {'DC' if coupling else 'AC'}")
+
+    def set_channel_b_config(self, enabled: bool, coupling: int, voltage_range: int, offset: float = 0.0) -> None:
+        """Configure Channel B settings."""
+        self._config.channel_b_enabled = enabled
+        self._config.channel_b_coupling = coupling
+        self._config.channel_b_range = voltage_range
+        self._config.channel_b_offset = offset
+        self.signal_status.emit(f"Channel B: {'ON' if enabled else 'OFF'}, Range: {voltage_range}, Coupling: {'DC' if coupling else 'AC'}")
+
+    def get_multi_channel_config(self) -> dict:
+        """Get current multi-channel configuration."""
+        return {
+            'multi_channel_mode': self._config.multi_channel_mode,
+            'channel_a': {
+                'enabled': self._config.channel_a_enabled,
+                'coupling': self._config.channel_a_coupling,
+                'range': self._config.channel_a_range,
+                'offset': self._config.channel_a_offset
+            },
+            'channel_b': {
+                'enabled': self._config.channel_b_enabled,
+                'coupling': self._config.channel_b_coupling,
+                'range': self._config.channel_b_range,
+                'offset': self._config.channel_b_offset
+            }
+        }
 
     def zero_offset(self) -> None:
         """Zero the offset for the current channel by taking 100 samples and averaging them."""
@@ -222,7 +276,8 @@ class StreamingController(QtCore.QObject):
         self._samples_saved = 0
         
         # Clear accumulated plot data
-        self._accumulated_plot_data = []
+        self._accumulated_plot_data_a = []
+        self._accumulated_plot_data_b = []
         self._accumulated_plot_timestamps = []
         
         # Reset data source counters for fresh session
@@ -237,7 +292,13 @@ class StreamingController(QtCore.QObject):
         
         # Setup CSV writer
         cache_filename = self._create_cache_filename()
-        self._csv_writer = CsvWriter(cache_filename)
+        if self._config.multi_channel_mode:
+            # Multi-channel CSV writer with configuration
+            channel_config = self.get_multi_channel_config()
+            self._csv_writer = CsvWriter(cache_filename, multi_channel_mode=True, channel_config=channel_config)
+        else:
+            # Single channel CSV writer (v0.6 compatibility)
+            self._csv_writer = CsvWriter(cache_filename, multi_channel_mode=False)
         self._csv_writer.open()
         
         # Start background threads
@@ -302,7 +363,8 @@ class StreamingController(QtCore.QObject):
             self._ram_buffer.clear()
         
         # Clear accumulated plot data
-        self._accumulated_plot_data = []
+        self._accumulated_plot_data_a = []
+        self._accumulated_plot_data_b = []
         self._accumulated_plot_timestamps = []
         
         # Clear all queues
@@ -367,29 +429,62 @@ class StreamingController(QtCore.QObject):
             # Reuse the device that was opened at startup
             self._source = self._pico_source
             try:
-                # Just reconfigure the existing device
-                self._source.configure(
-                    sample_rate_hz=self._config.sample_rate_hz,
-                    channel=self._config.channel,
-                    coupling=self._config.coupling,
-                    voltage_range=self._config.voltage_range,
-                    resolution_bits=self._config.resolution_bits,
-                )
-                return "Using Pico source (ps4000) - device reused"
+                if self._config.multi_channel_mode:
+                    # Configure for multi-channel acquisition
+                    self._source.configure_multi_channel(
+                        sample_rate_hz=self._config.sample_rate_hz,
+                        channel_a_enabled=self._config.channel_a_enabled,
+                        channel_a_coupling=self._config.channel_a_coupling,
+                        channel_a_range=self._config.channel_a_range,
+                        channel_a_offset=self._config.channel_a_offset,
+                        channel_b_enabled=self._config.channel_b_enabled,
+                        channel_b_coupling=self._config.channel_b_coupling,
+                        channel_b_range=self._config.channel_b_range,
+                        channel_b_offset=self._config.channel_b_offset,
+                        resolution_bits=self._config.resolution_bits,
+                    )
+                    return "Using Pico source (ps4000) - multi-channel mode"
+                else:
+                    # Configure for single channel acquisition (v0.6 compatibility)
+                    self._source.configure(
+                        sample_rate_hz=self._config.sample_rate_hz,
+                        channel=self._config.channel,
+                        coupling=self._config.coupling,
+                        voltage_range=self._config.voltage_range,
+                        resolution_bits=self._config.resolution_bits,
+                    )
+                    return "Using Pico source (ps4000) - single channel mode"
             except Exception as ex:
                 raise RuntimeError(f"Pico reconfigure failed: {ex}")
         else:
             # Create new source - no fallback
             try:
                 self._source = PicoDirectSource()
-                self._source.configure(
-                    sample_rate_hz=self._config.sample_rate_hz,
-                    channel=self._config.channel,
-                    coupling=self._config.coupling,
-                    voltage_range=self._config.voltage_range,
-                    resolution_bits=self._config.resolution_bits,
-                )
-                return "Using Pico source (ps4000) - new device"
+                if self._config.multi_channel_mode:
+                    # Configure for multi-channel acquisition
+                    self._source.configure_multi_channel(
+                        sample_rate_hz=self._config.sample_rate_hz,
+                        channel_a_enabled=self._config.channel_a_enabled,
+                        channel_a_coupling=self._config.channel_a_coupling,
+                        channel_a_range=self._config.channel_a_range,
+                        channel_a_offset=self._config.channel_a_offset,
+                        channel_b_enabled=self._config.channel_b_enabled,
+                        channel_b_coupling=self._config.channel_b_coupling,
+                        channel_b_range=self._config.channel_b_range,
+                        channel_b_offset=self._config.channel_b_offset,
+                        resolution_bits=self._config.resolution_bits,
+                    )
+                    return "Using Pico source (ps4000) - new device, multi-channel mode"
+                else:
+                    # Configure for single channel acquisition (v0.6 compatibility)
+                    self._source.configure(
+                        sample_rate_hz=self._config.sample_rate_hz,
+                        channel=self._config.channel,
+                        coupling=self._config.coupling,
+                        voltage_range=self._config.voltage_range,
+                        resolution_bits=self._config.resolution_bits,
+                    )
+                    return "Using Pico source (ps4000) - new device, single channel mode"
             except Exception as ex:
                 raise RuntimeError(f"Pico init failed: {ex}")
 
@@ -433,7 +528,7 @@ class StreamingController(QtCore.QObject):
             # Trigger stop behavior
             self._stop_event.set()
 
-    def _acquire_block(self) -> List[Tuple[float, float]]:
+    def _acquire_block(self) -> List[Tuple[float, float, float]]:
         """Acquire a block of data from the source."""
         block_data = []
         try:
@@ -448,29 +543,39 @@ class StreamingController(QtCore.QObject):
             for _ in range(samples_per_block):
                 if self._stop_event.is_set():
                     break
-                value, timestamp = self._source.read()
-                block_data.append((timestamp, value))
+                
+                if self._config.multi_channel_mode:
+                    # Multi-channel acquisition
+                    (channel_a_value, channel_b_value), timestamp = self._source.read_dual_channel()
+                    block_data.append((timestamp, channel_a_value, channel_b_value))
+                else:
+                    # Single channel acquisition (v0.6 compatibility)
+                    value, timestamp = self._source.read()
+                    block_data.append((timestamp, value, 0.0))  # Channel B = 0 for single channel
         except Exception as e:
             # Connection lost during block acquisition - propagate the error
             raise RuntimeError(f"Block acquisition failed: {e}")
         
         return block_data
 
-    def _process_block(self, block_data: List[Tuple[float, float]]) -> List[Tuple[float, float]]:
-        """Process a block of data."""
+    def _process_block(self, block_data: List[Tuple[float, float, float]]) -> List[Tuple[float, float, float]]:
+        """Process a block of multi-channel data."""
         processed_data = []
         try:
-            # Get the current channel offset
-            current_channel = self._config.channel
-            channel_offset = self._channel_offsets.get(current_channel, 0.0)
+            # Get channel offsets
+            channel_a_offset = self._channel_offsets.get(0, 0.0)
+            channel_b_offset = self._channel_offsets.get(1, 0.0)
             
-            for timestamp, value in block_data:
-                # Apply channel offset: (raw voltage + offset)
-                offset_adjusted_value = value + channel_offset
+            for timestamp, channel_a_value, channel_b_value in block_data:
+                # Apply channel offsets: (raw voltage + offset)
+                offset_adjusted_a = channel_a_value + channel_a_offset
+                offset_adjusted_b = channel_b_value + channel_b_offset
                 
-                # Process the offset-adjusted value
-                processed_value = self._pipeline.process(offset_adjusted_value)
-                processed_data.append((timestamp, processed_value))
+                # Process the offset-adjusted values
+                processed_a = self._pipeline.process(offset_adjusted_a)
+                processed_b = self._pipeline.process(offset_adjusted_b)
+                
+                processed_data.append((timestamp, processed_a, processed_b))
                 self._samples_processed += 1
         except Exception as e:
             self.signal_status.emit(f"Block processing error: {e}")
@@ -478,32 +583,33 @@ class StreamingController(QtCore.QObject):
         
         return processed_data
 
-    def _store_block_in_ram(self, block_data: List[Tuple[float, float]]) -> None:
+    def _store_block_in_ram(self, block_data: List[Tuple[float, float, float]]) -> None:
         """Store block data in RAM buffer."""
         with self._ram_buffer_lock:
             self._ram_buffer.extend(block_data)
             
             # Limit RAM buffer size
-            max_samples = int(self._config.ram_buffer_size_mb * 1024 * 1024 / 16)  # ~16 bytes per sample
+            max_samples = int(self._config.ram_buffer_size_mb * 1024 * 1024 / 24)  # ~24 bytes per sample (timestamp + 2 channels)
             if len(self._ram_buffer) > max_samples:
                 # Remove oldest data
                 excess = len(self._ram_buffer) - max_samples
                 self._ram_buffer = self._ram_buffer[excess:]
 
-    def _queue_plot_data(self, block_data: List[Tuple[float, float]]) -> None:
+    def _queue_plot_data(self, block_data: List[Tuple[float, float, float]]) -> None:
         """Queue block data for plot updates."""
         try:
             # Convert to numpy arrays for efficient plotting
             timestamps = np.array([d[0] for d in block_data], dtype=float)
-            values = np.array([d[1] for d in block_data], dtype=float)
+            channel_a_values = np.array([d[1] for d in block_data], dtype=float)
+            channel_b_values = np.array([d[2] for d in block_data], dtype=float)
             
-            # Non-blocking put
-            self._plot_queue.put_nowait((values, timestamps))
+            # Non-blocking put - store both channels
+            self._plot_queue.put_nowait((channel_a_values, channel_b_values, timestamps))
         except queue.Full:
             # Plot queue is full, skip this update
             pass
 
-    def _queue_csv_data(self, block_data: List[Tuple[float, float]]) -> None:
+    def _queue_csv_data(self, block_data: List[Tuple[float, float, float]]) -> None:
         """Queue block data for CSV writing."""
         try:
             # Non-blocking put
@@ -522,8 +628,17 @@ class StreamingController(QtCore.QObject):
                 # Write to CSV
                 if self._csv_writer:
                     timestamps = [d[0] for d in block_data]
-                    values = [d[1] for d in block_data]
-                    self._csv_writer.write_batch(timestamps, values)
+                    channel_a_values = [d[1] for d in block_data]
+                    channel_b_values = [d[2] for d in block_data]
+                    
+                    if self._config.multi_channel_mode:
+                        # Multi-channel CSV writing
+                        self._csv_writer.write_multi_channel_batch(timestamps, channel_a_values, channel_b_values)
+                    else:
+                        # Single channel CSV writing (v0.6 compatibility)
+                        # Use channel A values for single channel mode
+                        self._csv_writer.write_batch(timestamps, channel_a_values)
+                    
                     self._samples_saved += len(block_data)
                 
                 self._csv_queue.task_done()
@@ -560,27 +675,31 @@ class StreamingController(QtCore.QObject):
                 break
 
     def _update_plot(self) -> None:
-        """Update the plot with accumulated data for continuous display."""
+        """Update the plot with accumulated multi-channel data for continuous display."""
         try:
             # Collect all available plot data
-            all_values = []
+            all_channel_a_values = []
+            all_channel_b_values = []
             all_timestamps = []
             
             while not self._plot_queue.empty():
                 try:
-                    values, timestamps = self._plot_queue.get_nowait()
-                    all_values.extend(values)
+                    channel_a_values, channel_b_values, timestamps = self._plot_queue.get_nowait()
+                    all_channel_a_values.extend(channel_a_values)
+                    all_channel_b_values.extend(channel_b_values)
                     all_timestamps.extend(timestamps)
                 except queue.Empty:
                     break
             
-            if all_values:
+            if all_channel_a_values:
                 # Add to accumulated plot data
-                if not hasattr(self, '_accumulated_plot_data'):
-                    self._accumulated_plot_data = []
+                if not hasattr(self, '_accumulated_plot_data_a'):
+                    self._accumulated_plot_data_a = []
+                    self._accumulated_plot_data_b = []
                     self._accumulated_plot_timestamps = []
                 
-                self._accumulated_plot_data.extend(all_values)
+                self._accumulated_plot_data_a.extend(all_channel_a_values)
+                self._accumulated_plot_data_b.extend(all_channel_b_values)
                 self._accumulated_plot_timestamps.extend(all_timestamps)
                 
                 # Limit accumulated data to timeline + buffer
@@ -588,17 +707,19 @@ class StreamingController(QtCore.QObject):
                 # This ensures plot behavior is independent of sample rate
                 # Use a reasonable fixed limit based on timeline duration
                 max_samples = int(100000)  # Fixed limit: ~100k samples should be enough for any timeline
-                if len(self._accumulated_plot_data) > max_samples:
-                    excess = len(self._accumulated_plot_data) - max_samples
-                    self._accumulated_plot_data = self._accumulated_plot_data[excess:]
+                if len(self._accumulated_plot_data_a) > max_samples:
+                    excess = len(self._accumulated_plot_data_a) - max_samples
+                    self._accumulated_plot_data_a = self._accumulated_plot_data_a[excess:]
+                    self._accumulated_plot_data_b = self._accumulated_plot_data_b[excess:]
                     self._accumulated_plot_timestamps = self._accumulated_plot_timestamps[excess:]
                 
                 # Convert to numpy arrays and emit
-                data = np.array(self._accumulated_plot_data, dtype=float)
+                data_a = np.array(self._accumulated_plot_data_a, dtype=float)
+                data_b = np.array(self._accumulated_plot_data_b, dtype=float)
                 time_axis = np.array(self._accumulated_plot_timestamps, dtype=float)
                 
-                # Emit plot data
-                self.signal_plot.emit((data, time_axis))
+                # Emit multi-channel plot data
+                self.signal_plot.emit((data_a, data_b, time_axis))
                 
         except Exception as e:
             self.signal_status.emit(f"Plot update error: {e}")
@@ -608,8 +729,17 @@ class StreamingController(QtCore.QObject):
         with self._ram_buffer_lock:
             if self._ram_buffer and self._csv_writer:
                 timestamps = [d[0] for d in self._ram_buffer]
-                values = [d[1] for d in self._ram_buffer]
-                self._csv_writer.write_batch(timestamps, values)
+                channel_a_values = [d[1] for d in self._ram_buffer]
+                channel_b_values = [d[2] for d in self._ram_buffer]
+                
+                if self._config.multi_channel_mode:
+                    # Multi-channel CSV writing
+                    self._csv_writer.write_multi_channel_batch(timestamps, channel_a_values, channel_b_values)
+                else:
+                    # Single channel CSV writing (v0.6 compatibility)
+                    # Use channel A values for single channel mode
+                    self._csv_writer.write_batch(timestamps, channel_a_values)
+                
                 self._samples_saved += len(self._ram_buffer)
                 self._ram_buffer.clear()
 
