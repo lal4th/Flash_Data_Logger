@@ -10,6 +10,7 @@ from typing import Tuple, Optional
 import numpy as np
 
 from app.acquisition.source import AcquisitionSource
+from app.acquisition.voltage_converter import PicoScopeVoltageConverter
 
 
 def find_ps4000_dll() -> str:
@@ -93,6 +94,8 @@ class PicoDirectSource(AcquisitionSource):
         self._sample_count: int = 0
         self._actual_sample_interval_s: float = 0.01  # Default 100Hz
         self._buffer_start_sample: int = 0
+        # Initialize the voltage converter with the mathematically correct formula
+        self._voltage_converter = PicoScopeVoltageConverter()
 
     def configure(
         self,
@@ -347,14 +350,11 @@ class PicoDirectSource(AcquisitionSource):
         if samples_retrieved != no_of_samples:
             pass  # Sample count mismatch but continue
         
-        # Convert to volts using the correct formula: ((adc/32768)*(+Range))
-        voltage_range_v = self._get_voltage_range_volts(self._range)
-        max_adc = 32768.0  # 16-bit ADC max value
-        
+        # Convert to volts using range-specific formulas discovered in testing
         raw_data = np.array([buffer[i] for i in range(samples_retrieved)], dtype=np.int16)
         
-        # Use correct voltage conversion formula: ((adc/32768)*(+Range))
-        voltage_data = (raw_data.astype(np.float64) / max_adc) * voltage_range_v
+        # Use the mathematically correct voltage conversion formula
+        voltage_data = self._voltage_converter.convert_adc_to_voltage(raw_data, self._range)
         
         self._buf = voltage_data
         self._buf_idx = 0
@@ -363,24 +363,26 @@ class PicoDirectSource(AcquisitionSource):
         self._buffer_start_sample = self._sample_count
 
 
-    def _get_voltage_range_volts(self, range_enum: int) -> float:
-        """Convert ps4000 range enum to voltage range in volts for conversion formula."""
-        # ps4000 voltage range mapping - use full range for conversion
-        # The correct formula is: ((adc/32768)*(+Range))
-        # This gives the actual voltage range from -Range to +Range
-        range_map = {
-            0: 0.010,   # ±10 mV -> use 10 mV
-            1: 0.020,   # ±20 mV -> use 20 mV
-            2: 0.050,   # ±50 mV -> use 50 mV
-            3: 0.100,   # ±100 mV -> use 100 mV
-            4: 0.200,   # ±200 mV -> use 200 mV
-            5: 0.500,   # ±500 mV -> use 500 mV
-            6: 1.0,     # ±1 V -> use 1.0 V
-            7: 5.0,     # ±5 V -> use 5.0 V
-            8: 10.0,    # ±10 V -> use 10.0 V
-            9: 20.0,    # ±20 V -> use 20.0 V
-        }
-        return range_map.get(range_enum, 5.0)  # Default to ±5V
+    def get_voltage_range_info(self, range_index: int) -> dict:
+        """
+        Get voltage range information using the new voltage converter.
+        
+        Args:
+            range_index: The PicoScope voltage range index (0-9)
+            
+        Returns:
+            Dictionary containing range information
+        """
+        return self._voltage_converter.get_conversion_info(range_index)
+    
+    def get_available_voltage_ranges(self) -> dict:
+        """
+        Get all available voltage ranges.
+        
+        Returns:
+            Dictionary mapping range indices to VoltageRange objects
+        """
+        return self._voltage_converter.get_available_ranges()
 
     def reset_session(self) -> None:
         """Reset all session-related state for a fresh start."""

@@ -36,6 +36,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.button_start = QtWidgets.QPushButton("Start", controls)
         self.button_stop = QtWidgets.QPushButton("Stop", controls)
         self.button_reset = QtWidgets.QPushButton("Reset Plot", controls)
+        self.button_zero_offset = QtWidgets.QPushButton("Zero Offset", controls)
         self.button_stop.setEnabled(False)
 
         self.button_save_csv = QtWidgets.QPushButton("Save CSV to...", controls)
@@ -51,13 +52,13 @@ class MainWindow(QtWidgets.QMainWindow):
         # Plot controls
         self.spinbox_y_max = QtWidgets.QDoubleSpinBox(controls)
         self.spinbox_y_max.setRange(0.1, 100.0)
-        self.spinbox_y_max.setValue(5.0)  # Match default ±5V range
+        self.spinbox_y_max.setValue(10.0)  # Match default ±10V range (corrected)
         self.spinbox_y_max.setSuffix(" V")
         self.spinbox_y_max.setDecimals(1)
         
         self.spinbox_y_min = QtWidgets.QDoubleSpinBox(controls)
         self.spinbox_y_min.setRange(-100.0, -0.1)
-        self.spinbox_y_min.setValue(-5.0)  # Match default ±5V range
+        self.spinbox_y_min.setValue(-10.0)  # Match default ±10V range (corrected)
         self.spinbox_y_min.setSuffix(" V")
         self.spinbox_y_min.setDecimals(1)
         
@@ -76,7 +77,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.combo_coupling.addItem("DC", userData=1)
         self.combo_coupling.addItem("AC", userData=0)
 
-        # Common ps4000 ranges; map text to enum index
+        # Common ps4000 ranges; map text to enum index - CORRECTED MAPPINGS
         self.combo_range = QtWidgets.QComboBox(controls)
         ranges = [
             ("±10 mV", 0),
@@ -86,13 +87,13 @@ class MainWindow(QtWidgets.QMainWindow):
             ("±200 mV", 4),
             ("±500 mV", 5),
             ("±1 V", 6),
-            ("±5 V", 7),
-            ("±10 V", 8),
-            ("±20 V", 9),
+            ("±2 V", 7),    # CORRECTED: This was labeled ±5V but is actually ±2V
+            ("±5 V", 8),    # CORRECTED: This was labeled ±10V but is actually ±5V
+            ("±10 V", 9),   # CORRECTED: This was labeled ±20V but is actually ±10V
         ]
         for label, enum_val in ranges:
             self.combo_range.addItem(label, userData=enum_val)
-        self.combo_range.setCurrentIndex(7)  # ±5 V (changed back to test persistent configuration theory)
+        self.combo_range.setCurrentIndex(9)  # ±10 V (default range) - now at index 9
 
         self.combo_resolution = QtWidgets.QComboBox(controls)
         for bits in (8, 12, 14, 15, 16):
@@ -112,7 +113,12 @@ class MainWindow(QtWidgets.QMainWindow):
         button_row.addWidget(self.button_stop)
         button_row.addWidget(self.button_reset)
         
+        # Zero offset button row
+        zero_offset_row = QtWidgets.QHBoxLayout()
+        zero_offset_row.addWidget(self.button_zero_offset)
+        
         controls_layout.addRow(button_row)
+        controls_layout.addRow(zero_offset_row)
         controls_layout.addRow("Channel:", self.combo_channel)
         controls_layout.addRow("Coupling:", self.combo_coupling)
         controls_layout.addRow("Range:", self.combo_range)
@@ -139,7 +145,7 @@ class MainWindow(QtWidgets.QMainWindow):
         
         # Initialize plot with correct axis ranges
         self.plot_widget.setXRange(0, 60, padding=0)  # Default 60 seconds
-        self.plot_widget.setYRange(-5, 5, padding=0)  # Default ±5V
+        self.plot_widget.setYRange(-10, 10, padding=0)  # Default ±10V
         
         plot_layout.addWidget(self.plot_widget, 1)
 
@@ -154,6 +160,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.button_start.clicked.connect(self._on_start_clicked)
         self.button_stop.clicked.connect(self._on_stop_clicked)
         self.button_reset.clicked.connect(self._on_reset_clicked)
+        self.button_zero_offset.clicked.connect(self._on_zero_offset_clicked)
         self.button_browse_cache.clicked.connect(self._on_browse_cache_clicked)
         self.button_save_csv.clicked.connect(self._on_save_csv_clicked)
         self.spinbox_y_max.valueChanged.connect(self._on_y_range_changed)
@@ -208,6 +215,23 @@ class MainWindow(QtWidgets.QMainWindow):
         # Reset the controller's data source if there's a method for it
         if hasattr(self.controller, 'reset_data'):
             self.controller.reset_data()
+
+    def _on_zero_offset_clicked(self) -> None:
+        """Handle zero offset button click."""
+        # Disable the button temporarily to prevent multiple clicks
+        self.button_zero_offset.setEnabled(False)
+        self.button_zero_offset.setText("Zeroing...")
+        
+        # Call the controller's zero offset function
+        self.controller.zero_offset()
+        
+        # Re-enable the button after a short delay
+        QtCore.QTimer.singleShot(2000, self._re_enable_zero_offset_button)
+    
+    def _re_enable_zero_offset_button(self) -> None:
+        """Re-enable the zero offset button after zeroing is complete."""
+        self.button_zero_offset.setEnabled(True)
+        self.button_zero_offset.setText("Zero Offset")
 
     def _on_y_range_changed(self) -> None:
         self.controller.set_y_range(self.spinbox_y_min.value(), self.spinbox_y_max.value())

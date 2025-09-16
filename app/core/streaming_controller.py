@@ -30,11 +30,11 @@ class StreamingConfig:
     recording_enabled: bool = False
     channel: int = 0
     coupling: int = 1  # 1=DC, 0=AC for ps4000
-    voltage_range: int = 7  # ±5 V (changed back to test persistent configuration theory)
+    voltage_range: int = 8  # ±10 V (default range)
     resolution_bits: int = 16
     cache_directory: Path = Path.cwd() / "cache"
-    y_min: float = -5.0  # Will be updated based on voltage range
-    y_max: float = 5.0   # Will be updated based on voltage range
+    y_min: float = -10.0  # Will be updated based on voltage range
+    y_max: float = 10.0   # Will be updated based on voltage range
     timeline_seconds: float = 60.0
     # Streaming-specific settings
     block_size: int = 1000  # Samples per block
@@ -79,6 +79,9 @@ class StreamingController(QtCore.QObject):
         self._samples_processed = 0
         self._samples_saved = 0
         self._session_start_time: Optional[datetime] = None
+        
+        # Channel offset storage (default 0 for both channels)
+        self._channel_offsets = {0: 0.0, 1: 0.0}  # Channel A and B offsets
 
     # ----- Config setters -----
     def set_sample_rate(self, hz: int) -> None:
@@ -133,6 +136,47 @@ class StreamingController(QtCore.QObject):
     def set_timeline(self, timeline_seconds: float) -> None:
         self._config.timeline_seconds = timeline_seconds
         self.signal_status.emit(f"Timeline: {timeline_seconds:.1f} seconds")
+
+    def zero_offset(self) -> None:
+        """Zero the offset for the current channel by taking 100 samples and averaging them."""
+        if self._acquisition_thread and self._acquisition_thread.is_alive():
+            self.signal_status.emit("Cannot zero offset while acquisition is running - stop first")
+            return
+        
+        if self._pico_source is None:
+            self.signal_status.emit("Cannot zero offset - no device available")
+            return
+        
+        try:
+            self.signal_status.emit("Zeroing offset... taking 100 samples")
+            
+            # Take 100 samples from the current channel
+            samples = []
+            for _ in range(100):
+                try:
+                    value, _ = self._pico_source.read()
+                    samples.append(value)
+                except Exception as e:
+                    self.signal_status.emit(f"Error taking sample: {e}")
+                    return
+            
+            # Calculate average and store as offset
+            if samples:
+                average_offset = sum(samples) / len(samples)
+                current_channel = self._config.channel
+                self._channel_offsets[current_channel] = -average_offset  # Negative to cancel out the offset
+                
+                channel_name = "A" if current_channel == 0 else "B"
+                self.signal_status.emit(f"Channel {channel_name} offset set to {self._channel_offsets[current_channel]:.6f} V")
+            else:
+                self.signal_status.emit("Failed to collect samples for offset calculation")
+                
+        except Exception as e:
+            self.signal_status.emit(f"Zero offset failed: {e}")
+
+    def get_channel_offset(self, channel: int) -> float:
+        """Get the current offset for a specific channel."""
+        return self._channel_offsets.get(channel, 0.0)
 
     def _create_cache_filename(self) -> Path:
         """Create timestamped cache filename with unique timestamp for each session."""
@@ -416,9 +460,16 @@ class StreamingController(QtCore.QObject):
         """Process a block of data."""
         processed_data = []
         try:
+            # Get the current channel offset
+            current_channel = self._config.channel
+            channel_offset = self._channel_offsets.get(current_channel, 0.0)
+            
             for timestamp, value in block_data:
-                # Process the value
-                processed_value = self._pipeline.process(value)
+                # Apply channel offset: (raw voltage + offset)
+                offset_adjusted_value = value + channel_offset
+                
+                # Process the offset-adjusted value
+                processed_value = self._pipeline.process(offset_adjusted_value)
                 processed_data.append((timestamp, processed_value))
                 self._samples_processed += 1
         except Exception as e:

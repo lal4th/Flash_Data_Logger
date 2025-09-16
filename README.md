@@ -1,17 +1,18 @@
-# Flash Data Logger v0.5
+# Flash Data Logger v0.6
 
-**Production-ready** PC application for high-performance real-time data acquisition, display, and logging from PicoScope oscilloscopes, with optimized streaming architecture for the PicoScope 4262.
+**Production-ready** PC application for high-performance real-time data acquisition, display, and logging from PicoScope oscilloscopes, with mathematically accurate voltage conversion and optimized streaming architecture for the PicoScope 4262.
 
-## 🚀 **Key Features**
+## 🚀 **Key Features (v0.6)**
 
+- **Mathematically Accurate Voltage Conversion**: Scientifically derived formula for precise measurements across all voltage ranges
 - **High-Performance Streaming**: Multi-threaded architecture supporting up to 5000Hz sample rates
 - **Real-time Data Acquisition**: Direct ps4000 API communication with block-based acquisition
 - **Live Plotting**: PyQt6 + pyqtgraph interface with fixed 10Hz update rate for smooth visualization
 - **Automatic CSV Caching**: Background CSV writing with timestamped files and configurable cache directory
-- **Comprehensive Controls**: Channel selection, coupling (AC/DC), voltage range (±10mV to ±20V), resolution, sample rate
+- **Comprehensive Controls**: Channel selection, coupling (AC/DC), voltage range (±10mV to ±10V), resolution, sample rate
 - **Session Management**: Start, stop, reset with proper data clearing and CSV management
 - **Hardware Reconfiguration**: Runtime parameter changes without device restart
-- **Accurate Voltage Scaling**: Correct conversion formulas for all voltage ranges
+- **Zero Offset Functionality**: Accurate baseline measurements with offset correction
 
 ## Quick Start
 
@@ -98,15 +99,30 @@ pip install -r requirements.txt
 - **Single channel** - Channel A only (Channel B ready for implementation)
 - **Fixed timebase** - Uses timebase 8 for all sample rates
 
-### **🎯 Next Development (v0.6)**
-- Investigate ±5V range hardware saturation issue
-- Implement Channel B support for dual-channel acquisition
-- Optimize timebase selection for better accuracy
-- Add trigger functionality and data analysis tools
+### **🎯 Next Development (v0.7) - Multi-Channel & Math Channel Support**
+
+#### **Primary Goals for v0.7:**
+1. **Multi-Channel Support**
+   - Simultaneous Channel A and B acquisition
+   - Separate plot windows for each channel
+   - Independent controls for voltage range, coupling, offset
+   - Both channels recorded in CSV with timestamps
+
+2. **Math Channel Support**
+   - Excel-style calculator bar for real-time formulas
+   - Up to 6 additional math channels (A+B, A-B, A*B, A/B, A^2, sqrt(A), etc.)
+   - Separate plot windows for each math channel
+   - All math channel values included in CSV export
+
+3. **Enhanced UI**
+   - Tabbed interface for multiple plots
+   - Formula editor with syntax validation
+   - Drag-and-drop channel management
+   - Configuration profiles for multi-channel setups
 
 ## 📚 **Documentation**
 
-- **Current Handoff**: `Handoff_to_v0.5.md` - Complete technical documentation and status
+- **Current Handoff**: `Handoff_to_v0.6.md` - Complete technical documentation and v0.7 roadmap
 - **Development History**: `Handoff_to_v0.4.md`, `Handoff_to_v0.3.md`, `Handoff_to_v0.2.md`
 - **Requirements**: Complete specifications in `REQUIREMENTS.md`
 - **Smoke Test**: Standalone connectivity validation in `scripts/pico_smoketest.py`
@@ -134,4 +150,4 @@ This is a production-ready application for PicoScope data acquisition. See `Hand
 
 ---
 
-**Status**: v0.5 - **Production Ready** with high-performance streaming architecture and real-time data acquisition up to 5000Hz
+**Status**: v0.6 - **Production Ready** with mathematically accurate voltage conversion and high-performance streaming architecture up to 5000Hz

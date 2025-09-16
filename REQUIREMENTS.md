@@ -113,10 +113,48 @@
 4) **Validation/UI polish**: Device-aware limits and concise errors.
 5) **Multi-device support**: Abstract acquisition to accommodate additional Pico models/APIs later. [[memory:8854466]]
 
-### Open Items / Future Work
+### v0.7 Development Requirements - Multi-Channel & Math Channel Support
+
+#### **Multi-Channel Acquisition Requirements**
+- **Dual-channel support**: Simultaneous Channel A and Channel B data acquisition
+- **Independent channel controls**: Separate voltage range, coupling, and offset settings for each channel
+- **Synchronized sampling**: Both channels sampled simultaneously with shared timestamps
+- **Separate plot displays**: Independent plot windows for Channel A and Channel B
+- **Enhanced CSV format**: Extended CSV with columns: timestamp, Channel_A, Channel_B, Math_1, Math_2, ..., Math_6
+
+#### **Math Channel Requirements**
+- **Formula input interface**: Excel-style calculator bar for entering mathematical expressions
+- **Variable support**: Use Channel A (A) and Channel B (B) as variables in formulas
+- **Real-time evaluation**: Formulas calculated and displayed in real-time with the same update rate as physical channels
+- **Multiple math channels**: Support for up to 6 additional calculated channels (Math_1 through Math_6)
+- **Formula syntax validation**: Error checking and validation of mathematical expressions
+- **Math function library**: Support for basic operations (+, -, *, /, ^), trigonometric (sin, cos, tan), logarithmic (log, ln, exp), and statistical functions (avg, min, max, std)
+
+#### **Enhanced UI Requirements**
+- **Tabbed interface**: Separate tabs for Channel A, Channel B, and Math Channels
+- **Formula editor**: Text input with syntax highlighting and auto-completion
+- **Channel management**: Enable/disable individual channels and math channels
+- **Configuration profiles**: Save/load multi-channel measurement configurations
+- **Drag-and-drop**: Reorder math channels and rearrange plot layouts
+
+#### **Performance Requirements**
+- **Multi-channel streaming**: Optimized architecture for dual-channel acquisition without performance degradation
+- **Math channel performance**: Real-time formula evaluation with <10ms calculation delay
+- **Memory management**: Efficient buffering for multiple data streams
+- **Plot rendering**: Optimized rendering for multiple plot windows maintaining 10Hz update rate
+
+#### **Data Management Requirements**
+- **Extended CSV format**: Include all channels (A, B, Math_1-6) in single CSV file
+- **Header information**: Include formula definitions and channel settings in CSV headers
+- **Data validation**: Ensure all channels have synchronized timestamps
+- **Error handling**: Graceful handling of calculation errors (division by zero, invalid formulas)
+
+### Open Items / Future Work (Post v0.7)
 
 - ps4000 streaming: tune parameters and buffer sizes per device limits; expose effective sample rate in UI.
 - ps4000a and other families: conditional loading and capability discovery.
 - Unit/integration tests around acquisition lifecycle and CSV output.
+- Advanced triggering functionality for precise measurements.
+- Higher sample rates (10kHz+) with optimized multi-channel architecture.
 
 
