@@ -113,7 +113,18 @@
 4) **Validation/UI polish**: Device-aware limits and concise errors.
 5) **Multi-device support**: Abstract acquisition to accommodate additional Pico models/APIs later. [[memory:8854466]]
 
-### v0.7 Development Requirements - Multi-Channel & Math Channel Support
+### v0.8 Development Requirements - Dynamic Plot Management (COMPLETED)
+
+#### **Dynamic Plot Management Requirements**
+- **Flexible grid layout**: Automatically resizes from 1x1 to 3x3 based on number of plots
+- **Add Plot dialog**: Configure new plots with channel selection, Y-axis range, color, and title
+- **Plot management**: Edit, delete, and reorder plots with dedicated controls
+- **Synchronized scrolling**: All grid plots scroll together horizontally for coordinated time analysis
+- **Mirror windows**: Double-click any plot to open an independent copy in a separate window
+- **Single plot per channel**: Prevents conflicts by allowing only one Channel A and one Channel B plot
+- **Control state management**: Proper enabling/disabling of controls during logging sessions
+
+### v0.9 Development Requirements - Math Channel Functionality
 
 #### **Multi-Channel Acquisition Requirements**
 - **Dual-channel support**: Simultaneous Channel A and Channel B data acquisition

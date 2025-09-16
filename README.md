@@ -1,20 +1,22 @@
-# Flash Data Logger v0.7
+# Flash Data Logger v0.8
 
-**Production-ready** PC application for high-performance real-time data acquisition, display, and logging from PicoScope oscilloscopes, with mathematically accurate voltage conversion, multi-channel support, and optimized streaming architecture for the PicoScope 4262.
+**Production-ready** PC application for high-performance real-time data acquisition, display, and logging from PicoScope oscilloscopes, with mathematically accurate voltage conversion, multi-channel support, dynamic plot management, and optimized streaming architecture for the PicoScope 4262.
 
-## 🚀 **Key Features (v0.7)**
+## 🚀 **Key Features (v0.8)**
 
 - **Multi-Channel Acquisition**: Simultaneous Channel A and B data acquisition with synchronized timestamps
 - **Mathematically Accurate Voltage Conversion**: Scientifically derived formula for precise measurements across all voltage ranges
 - **High-Performance Streaming**: Multi-threaded architecture supporting up to 5000Hz sample rates
 - **Real-time Data Acquisition**: Direct ps4000 API communication with block-based acquisition
-- **Live Plotting**: PyQt6 + pyqtgraph interface with fixed 10Hz update rate for smooth visualization
+- **Dynamic Plot Management**: Flexible grid-based plot system with configurable channels and math channels
+- **Enhanced UI**: Minimalist controls with "Add Plot" functionality for custom plot configurations
+- **Synchronized Scrolling**: All grid plots scroll together horizontally for coordinated time analysis
+- **Mirror Windows**: Double-click any plot to open an independent copy in a separate window
 - **Extended CSV Export**: Multi-channel format with both Channel A and B data in single file
-- **Multi-Channel Toggle**: Easy switching between single-channel (v0.6 compatibility) and dual-channel modes
-- **Comprehensive Controls**: Channel selection, coupling (AC/DC), voltage range (±10mV to ±10V), resolution, sample rate
+- **Plot Configuration**: Per-plot settings for Y-axis range, color, title, and channel selection
 - **Session Management**: Start, stop, reset with proper data clearing and CSV management
 - **Hardware Reconfiguration**: Runtime parameter changes without device restart
-- **Zero Offset Functionality**: Accurate baseline measurements with offset correction
+- **Zero Offset Functionality**: Accurate baseline measurements with offset correction (programmatic access)
 - **Backward Compatibility**: v0.6 functionality preserved exactly
 
 ## Quick Start
@@ -88,52 +90,57 @@ pip install -r requirements.txt
 | Responsiveness | <100ms | <100ms | **Maintained** |
 | Memory Usage | Controlled | Controlled | **Stable** |
 
-## ✅ **Current Status (v0.7)**
+## ✅ **Current Status (v0.8)**
 
 ### **Fully Functional**
 - **Multi-channel acquisition** - Simultaneous Channel A and B data acquisition
 - **High-performance streaming** - Multi-threaded architecture with queues
 - **Real-time data acquisition** - Up to 5000Hz sample rates
-- **Live plotting** - Fixed 10Hz update rate with continuous lines
+- **Dynamic plot management** - Flexible grid-based plot system with configurable channels
+- **Enhanced UI** - Minimalist controls with "Add Plot" functionality
+- **Synchronized scrolling** - All grid plots scroll together horizontally
+- **Mirror windows** - Double-click any plot to open independent copy
 - **Extended CSV logging** - Multi-channel format with both channels
-- **Multi-channel toggle** - Easy switching between single and dual-channel modes
+- **Plot configuration** - Per-plot settings for Y-axis range, color, title, and channel selection
 - **Session management** - Proper start, stop, reset with data clearing
 - **Hardware reconfiguration** - Runtime parameter changes
 - **Accurate voltage scaling** - Mathematically correct conversion formulas
 - **Memory management** - Controlled RAM usage with automatic flushing
 - **Backward compatibility** - v0.6 functionality preserved exactly
 
-### **✅ Multi-Channel Features**
-- **Dual-channel acquisition** - Channel A and B sampled simultaneously
-- **Synchronized timestamps** - Shared timing across both channels
-- **Extended CSV format** - `timestamp,Channel_A,Channel_B` format
-- **Independent configuration** - Separate settings for each channel
-- **Mode switching** - Toggle between single and multi-channel operation
+### **✅ v0.8 Enhanced UI Features**
+- **Dynamic plot grid** - Automatically resizes from 1x1 to 3x3 based on number of plots
+- **Add Plot dialog** - Configure new plots with channel selection, Y-axis range, color, and title
+- **Plot management** - Edit, delete, and reorder plots with dedicated controls
+- **Synchronized scrolling** - All grid plots scroll together for coordinated time analysis
+- **Mirror windows** - Independent plot windows that can scroll separately from grid
+- **Single plot per channel** - Prevents conflicts by allowing only one Channel A and one Channel B plot
+- **Control state management** - Proper enabling/disabling of controls during logging sessions
 
-### **🎯 Next Development (v0.8) - Enhanced UI & Separate A/B Plots**
+### **🎯 Next Development (v0.9) - Math Channel Functionality**
 
-#### **Primary Goals for v0.8:**
-1. **Separate A/B Plot Windows**
-   - Tabbed interface with dedicated Channel A and Channel B plots
-   - Independent Y-axis scaling for each channel
-   - Synchronized time axes across tabs
-   - Channel-specific styling and controls
+#### **Primary Goals for v0.9:**
+1. **Math Channel Implementation**
+   - Excel-style formula input for mathematical expressions
+   - Real-time calculation using Channel A and B as variables
+   - Support for up to 6 math channels (Math_1 through Math_6)
+   - Formula validation and error handling
 
-2. **Enhanced CSV Recording**
-   - Improved multi-channel CSV format with better metadata
-   - Channel selection options for export
-   - Enhanced headers with detailed configuration information
-   - Batch processing capabilities
+2. **Enhanced Formula Engine**
+   - Basic operations (+, -, *, /, ^, sqrt, abs)
+   - Trigonometric functions (sin, cos, tan, asin, acos, atan)
+   - Logarithmic functions (log, ln, exp)
+   - Statistical functions (avg, min, max, std)
+   - Conditional logic (if-then-else)
 
-3. **Improved User Experience**
-   - Enhanced multi-channel interface
-   - Visual indicators for active channels
-   - Better controls and status display
-   - Performance optimizations for dual plots
+3. **Extended Data Management**
+   - Math channel data included in CSV exports
+   - Formula definitions saved in CSV headers
+   - Configuration profiles for math channel setups
 
 ## 📚 **Documentation**
 
-- **Current Handoff**: `Handoff_to_v0.8.md` - Complete v0.7 multi-channel foundation and v0.8 roadmap
+- **Current Handoff**: `Handoff_to_v0.9.md` - Complete v0.8 enhanced UI and v0.9 math channel roadmap
 - **Development History**: `Handoff_to_v0.6.md`, `Handoff_to_v0.5.md`, `Handoff_to_v0.4.md`, `Handoff_to_v0.3.md`, `Handoff_to_v0.2.md`
 - **Requirements**: Complete specifications in `REQUIREMENTS.md`
 - **Smoke Test**: Standalone connectivity validation in `scripts/pico_smoketest.py`
@@ -161,4 +168,4 @@ This is a production-ready application for PicoScope data acquisition with multi
 
 ---
 
-**Status**: v0.7 - **Production Ready** with multi-channel acquisition, mathematically accurate voltage conversion, and high-performance streaming architecture up to 5000Hz
+**Status**: v0.8 - **Production Ready** with dynamic plot management, synchronized scrolling, mirror windows, and high-performance streaming architecture up to 5000Hz

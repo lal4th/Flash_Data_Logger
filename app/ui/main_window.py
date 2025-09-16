@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List, Tuple
 
 import numpy as np
 import pyqtgraph as pg
-from PyQt6 import QtWidgets, QtCore
+from PyQt6 import QtWidgets, QtCore, QtGui
 
 from app.core.streaming_controller import StreamingController
 
@@ -36,14 +36,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.button_start = QtWidgets.QPushButton("Start", controls)
         self.button_stop = QtWidgets.QPushButton("Stop", controls)
         self.button_reset = QtWidgets.QPushButton("Reset Plot", controls)
-        self.button_zero_offset = QtWidgets.QPushButton("Zero Offset", controls)
         self.button_stop.setEnabled(False)
 
         self.button_save_csv = QtWidgets.QPushButton("Save CSV to...", controls)
         
-        # v0.7 Multi-channel mode toggle
-        self.checkbox_multi_channel = QtWidgets.QCheckBox("Multi-Channel Mode", controls)
-        self.checkbox_multi_channel.setToolTip("Enable simultaneous Channel A and B acquisition")
+        # Always-on multi-channel; remove toggle
         
         # Cache directory setting
         self.lineedit_cache_dir = QtWidgets.QLineEdit(str(Path.cwd() / "cache"))
@@ -53,61 +50,30 @@ class MainWindow(QtWidgets.QMainWindow):
         cache_row.addWidget(self.lineedit_cache_dir, 1)
         cache_row.addWidget(self.button_browse_cache, 0)
         
-        # Plot controls
-        self.spinbox_y_max = QtWidgets.QDoubleSpinBox(controls)
-        self.spinbox_y_max.setRange(0.1, 100.0)
-        self.spinbox_y_max.setValue(10.0)  # Match default ±10V range (corrected)
-        self.spinbox_y_max.setSuffix(" V")
-        self.spinbox_y_max.setDecimals(1)
-        
-        self.spinbox_y_min = QtWidgets.QDoubleSpinBox(controls)
-        self.spinbox_y_min.setRange(-100.0, -0.1)
-        self.spinbox_y_min.setValue(-10.0)  # Match default ±10V range (corrected)
-        self.spinbox_y_min.setSuffix(" V")
-        self.spinbox_y_min.setDecimals(1)
+        # Y-axis controls removed - each plot has its own Y-axis settings
         
         self.spinbox_timeline = QtWidgets.QDoubleSpinBox(controls)
         self.spinbox_timeline.setRange(1.0, 3600.0)
         self.spinbox_timeline.setValue(60.0)
         self.spinbox_timeline.setSuffix(" s")
         self.spinbox_timeline.setDecimals(1)
+        # Remove up/down arrows
+        self.spinbox_timeline.setButtonSymbols(QtWidgets.QAbstractSpinBox.ButtonSymbols.NoButtons)
 
-        # Device controls
-        self.combo_channel = QtWidgets.QComboBox(controls)
-        self.combo_channel.addItem("A", userData=0)
-        self.combo_channel.addItem("B", userData=1)
-
-        self.combo_coupling = QtWidgets.QComboBox(controls)
-        self.combo_coupling.addItem("DC", userData=1)
-        self.combo_coupling.addItem("AC", userData=0)
-
-        # Common ps4000 ranges; map text to enum index - CORRECTED MAPPINGS
-        self.combo_range = QtWidgets.QComboBox(controls)
-        ranges = [
-            ("±10 mV", 0),
-            ("±20 mV", 1),
-            ("±50 mV", 2),
-            ("±100 mV", 3),
-            ("±200 mV", 4),
-            ("±500 mV", 5),
-            ("±1 V", 6),
-            ("±2 V", 7),    # CORRECTED: This was labeled ±5V but is actually ±2V
-            ("±5 V", 8),    # CORRECTED: This was labeled ±10V but is actually ±5V
-            ("±10 V", 9),   # CORRECTED: This was labeled ±20V but is actually ±10V
-        ]
-        for label, enum_val in ranges:
-            self.combo_range.addItem(label, userData=enum_val)
-        self.combo_range.setCurrentIndex(9)  # ±10 V (default range) - now at index 9
-
+        # Minimal device/global controls
         self.combo_resolution = QtWidgets.QComboBox(controls)
         for bits in (8, 12, 14, 15, 16):
             self.combo_resolution.addItem(f"{bits} bit", userData=bits)
         self.combo_resolution.setCurrentIndex(4)  # 16-bit
+        # Remove dropdown arrow
+        self.combo_resolution.setStyleSheet("QComboBox::drop-down { border: none; }")
 
         self.combo_samplerate = QtWidgets.QComboBox(controls)
         for hz in (10, 50, 100, 200, 500, 1000, 2000, 5000):  # Added back high rates with streaming architecture
             self.combo_samplerate.addItem(f"{hz} Hz", userData=hz)
         self.combo_samplerate.setCurrentIndex(2)  # 100 Hz default
+        # Remove dropdown arrow
+        self.combo_samplerate.setStyleSheet("QComboBox::drop-down { border: none; }")
 
         self.label_status = QtWidgets.QLabel("Idle", controls)
 
@@ -117,42 +83,42 @@ class MainWindow(QtWidgets.QMainWindow):
         button_row.addWidget(self.button_stop)
         button_row.addWidget(self.button_reset)
         
-        # Zero offset button row
-        zero_offset_row = QtWidgets.QHBoxLayout()
-        zero_offset_row.addWidget(self.button_zero_offset)
+        # Add Plot button in its own row (where Zero Offset was)
+        self.button_add_plot = QtWidgets.QPushButton("Add Plot…", controls)
+        add_plot_row = QtWidgets.QHBoxLayout()
+        add_plot_row.addWidget(self.button_add_plot)
         
         controls_layout.addRow(button_row)
-        controls_layout.addRow(zero_offset_row)
-        controls_layout.addRow(self.checkbox_multi_channel)
-        controls_layout.addRow("Channel:", self.combo_channel)
-        controls_layout.addRow("Coupling:", self.combo_coupling)
-        controls_layout.addRow("Range:", self.combo_range)
+        controls_layout.addRow(add_plot_row)
+        # Minimal controls: remove explicit multi-channel toggle row
         controls_layout.addRow("Resolution:", self.combo_resolution)
         controls_layout.addRow("Sample rate:", self.combo_samplerate)
-        controls_layout.addRow("Y-axis Max:", self.spinbox_y_max)
-        controls_layout.addRow("Y-axis Min:", self.spinbox_y_min)
         controls_layout.addRow("Timeline:", self.spinbox_timeline)
         controls_layout.addRow("CSV Cache:", cache_row)
         controls_layout.addRow(self.button_save_csv)
         controls_layout.addRow("Status:", self.label_status)
 
-        # Plot area
+        # Plot area with splitter for Channel A and Channel B
         plot_container = QtWidgets.QGroupBox("Signal", splitter)
         plot_layout = QtWidgets.QVBoxLayout(plot_container)
         splitter.addWidget(plot_container)
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
 
-        self.plot_widget = pg.PlotWidget(plot_container)
-        self.plot_widget.setBackground("w")
-        self.plot_widget.showGrid(x=True, y=True, alpha=0.3)
-        self.plot_curve = self.plot_widget.plot(pen=pg.mkPen(color=(50, 100, 200), width=2))
+        # 3x2 Plot Grid
+        self.plot_grid_container = QtWidgets.QWidget(plot_container)
+        self.plot_grid_layout = QtWidgets.QGridLayout(self.plot_grid_container)
+        self.plot_grid_layout.setContentsMargins(0, 0, 0, 0)
+        self.plot_grid_layout.setSpacing(6)
+        plot_layout.addWidget(self.plot_grid_container, 1)
+
+        # Track panels (row, col) -> PlotPanel
+        self._plot_panels: List[Tuple[int, int, 'PlotPanel']] = []
         
-        # Initialize plot with correct axis ranges
-        self.plot_widget.setXRange(0, 60, padding=0)  # Default 60 seconds
-        self.plot_widget.setYRange(-10, 10, padding=0)  # Default ±10V
-        
-        plot_layout.addWidget(self.plot_widget, 1)
+        # Dynamic grid - no starter grid, grows as needed
+        self.grid_state: List[List[Optional[str]]] = []
+        self.grid_widgets: dict[Tuple[int, int], QtWidgets.QWidget] = {}
+        self.max_cols = 2  # Start with 2 columns, expand to 3 when needed
 
         # Wire up controller
         self._connect_signals()
@@ -165,32 +131,30 @@ class MainWindow(QtWidgets.QMainWindow):
         self.button_start.clicked.connect(self._on_start_clicked)
         self.button_stop.clicked.connect(self._on_stop_clicked)
         self.button_reset.clicked.connect(self._on_reset_clicked)
-        self.button_zero_offset.clicked.connect(self._on_zero_offset_clicked)
         self.button_browse_cache.clicked.connect(self._on_browse_cache_clicked)
         self.button_save_csv.clicked.connect(self._on_save_csv_clicked)
-        self.spinbox_y_max.valueChanged.connect(self._on_y_range_changed)
-        self.spinbox_y_min.valueChanged.connect(self._on_y_range_changed)
+        self.button_add_plot.clicked.connect(self._on_add_plot_clicked)
         self.spinbox_timeline.valueChanged.connect(self._on_timeline_changed)
         self.combo_samplerate.currentIndexChanged.connect(self._on_samplerate_changed)
-        self.checkbox_multi_channel.toggled.connect(self._on_multi_channel_toggled)
+        # Multi-channel is always on; no toggle wiring
+        # No layout toggle; grid is fixed 3x2
 
         self.controller.signal_status.connect(self._on_status_changed)
         self.controller.signal_plot.connect(self._on_plot_data)
         self.controller.signal_clear_plot.connect(self._on_clear_plot)
-        self.combo_channel.currentIndexChanged.connect(lambda _i: self.controller.set_channel(int(self.combo_channel.currentData())))
-        self.combo_coupling.currentIndexChanged.connect(lambda _i: self.controller.set_coupling(int(self.combo_coupling.currentData())))
-        self.combo_range.currentIndexChanged.connect(lambda _i: self.controller.set_voltage_range(int(self.combo_range.currentData())))
         self.combo_resolution.currentIndexChanged.connect(lambda _i: self.controller.set_resolution(int(self.combo_resolution.currentData())))
+        
+        # Synchronized scrolling will be handled differently
 
     def _apply_initial_state(self) -> None:
         self.controller.set_sample_rate(int(self.combo_samplerate.currentData()))
-        self.controller.set_channel(int(self.combo_channel.currentData()))
-        self.controller.set_coupling(int(self.combo_coupling.currentData()))
-        self.controller.set_voltage_range(int(self.combo_range.currentData()))
         self.controller.set_resolution(int(self.combo_resolution.currentData()))
         self.controller.set_cache_directory(Path(self.lineedit_cache_dir.text()))
-        self.controller.set_y_range(self.spinbox_y_min.value(), self.spinbox_y_max.value())
         self.controller.set_timeline(self.spinbox_timeline.value())
+        # Always-on multi-channel with default DC, ±10V for both
+        self.controller.set_multi_channel_mode(True)
+        self.controller.set_channel_a_config(True, 1, 9, 0.0)
+        self.controller.set_channel_b_config(True, 1, 9, 0.0)
         # Ensure controller stops when window closes to avoid dangling threads
         self._app_closing = False
         def _on_about_to_quit() -> None:
@@ -202,48 +166,88 @@ class MainWindow(QtWidgets.QMainWindow):
                     pass
         QtWidgets.QApplication.instance().aboutToQuit.connect(_on_about_to_quit)  # type: ignore[arg-type]
 
+
     # ----- Controller callbacks -----
     def _on_start_clicked(self) -> None:
+        # Check if PicoScope is connected before starting
+        if not hasattr(self.controller, '_pico_source') or self.controller._pico_source is None:
+            QtWidgets.QMessageBox.warning(self, "Device Not Connected", 
+                "No PicoScope device detected. Please connect a PicoScope and try again.")
+            return
+        
+        # Check if any plots have been added
+        if len(self._plot_panels) == 0:
+            QtWidgets.QMessageBox.warning(self, "No Plots Added", 
+                "No plots have been added to the view. Please add at least one plot before starting a logging session.")
+            return
+        
         self.button_start.setEnabled(False)
         self.button_stop.setEnabled(True)
+        self.button_add_plot.setEnabled(False)  # Disable Add Plot during logging
+        # Disable controls during logging with consistent styling
+        self.combo_resolution.setEnabled(False)
+        self.combo_samplerate.setEnabled(False)
+        self.spinbox_timeline.setEnabled(False)
+        # Apply consistent disabled styling
+        self._apply_disabled_styling()
         self.controller.start()
 
     def _on_stop_clicked(self) -> None:
         self.controller.stop()
         self.button_start.setEnabled(True)
         self.button_stop.setEnabled(False)
+        # Keep controls disabled - only Reset will re-enable them
 
     def _on_reset_clicked(self) -> None:
-        # Clear the plot and reset axes
-        self.plot_curve.setData([], [])
-        self.plot_widget.setXRange(0, self.spinbox_timeline.value(), padding=0)  # Reset to user-specified timeline
-        self.plot_widget.setYRange(self.spinbox_y_min.value(), self.spinbox_y_max.value(), padding=0)  # Reset to user-specified range
+        # Clear data from all plots but keep the plots themselves
+        for _r, _c, panel in self._plot_panels:
+            panel.clear()
+        
         # Reset the controller's data source if there's a method for it
         if hasattr(self.controller, 'reset_data'):
             self.controller.reset_data()
 
-    def _on_zero_offset_clicked(self) -> None:
-        """Handle zero offset button click."""
-        # Disable the button temporarily to prevent multiple clicks
-        self.button_zero_offset.setEnabled(False)
-        self.button_zero_offset.setText("Zeroing...")
-        
-        # Call the controller's zero offset function
+        # Re-enable all controls
+        self.button_add_plot.setEnabled(True)
+        self.combo_resolution.setEnabled(True)
+        self.combo_samplerate.setEnabled(True)
+        self.spinbox_timeline.setEnabled(True)
+        # Remove disabled styling
+        self._remove_disabled_styling()
+
+    # Zero offset functionality preserved but button hidden
+    def _zero_offset(self) -> None:
+        """Zero offset functionality - can be called programmatically if needed."""
         self.controller.zero_offset()
         
-        # Re-enable the button after a short delay
-        QtCore.QTimer.singleShot(2000, self._re_enable_zero_offset_button)
-    
-    def _re_enable_zero_offset_button(self) -> None:
-        """Re-enable the zero offset button after zeroing is complete."""
-        self.button_zero_offset.setEnabled(True)
-        self.button_zero_offset.setText("Zero Offset")
-
-    def _on_y_range_changed(self) -> None:
-        self.controller.set_y_range(self.spinbox_y_min.value(), self.spinbox_y_max.value())
+    # Y-axis range handling removed - each plot manages its own Y-axis
 
     def _on_timeline_changed(self) -> None:
         self.controller.set_timeline(self.spinbox_timeline.value())
+    
+    def _sync_all_plots_x_range(self, x_min: float, x_max: float, source_plot: 'PlotPanel') -> None:
+        """Synchronize X range across all main grid plots except the source."""
+        for _r, _c, panel in self._plot_panels:
+            if panel != source_plot:  # Don't sync the plot that triggered the change
+                # Set flag to prevent infinite loop
+                panel._syncing = True
+                panel.plot.setXRange(x_min, x_max, padding=0)
+                panel._syncing = False
+    
+    
+    def _apply_disabled_styling(self) -> None:
+        """Apply consistent disabled styling to all controls."""
+        print("Applying disabled styling to controls")
+        # Use standard disabled styling - no custom CSS needed
+        print("Disabled styling applied")
+    
+    def _remove_disabled_styling(self) -> None:
+        """Remove custom styling to restore default appearance."""
+        print("Removing disabled styling from controls")
+        # Restore the original styling for combo boxes (dropdown arrows)
+        self.combo_resolution.setStyleSheet("QComboBox::drop-down { border: none; }")
+        self.combo_samplerate.setStyleSheet("QComboBox::drop-down { border: none; }")
+        print("Disabled styling removed")
 
     def _on_browse_cache_clicked(self) -> None:
         directory = QtWidgets.QFileDialog.getExistingDirectory(
@@ -275,23 +279,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def _on_samplerate_changed(self, _index: int) -> None:
         self.controller.set_sample_rate(int(self.combo_samplerate.currentData()))
 
-    def _on_multi_channel_toggled(self, enabled: bool) -> None:
-        """Handle multi-channel mode toggle."""
-        self.controller.set_multi_channel_mode(enabled)
-        if enabled:
-            # Configure both channels with current settings
-            self.controller.set_channel_a_config(
-                enabled=True,
-                coupling=int(self.combo_coupling.currentData()),
-                voltage_range=int(self.combo_range.currentData()),
-                offset=0.0
-            )
-            self.controller.set_channel_b_config(
-                enabled=True,
-                coupling=int(self.combo_coupling.currentData()),
-                voltage_range=int(self.combo_range.currentData()),
-                offset=0.0
-            )
+    # Multi-channel is always on; no toggle handler
 
     # ----- Signals from controller -----
     @QtCore.pyqtSlot(str)
@@ -301,47 +289,494 @@ class MainWindow(QtWidgets.QMainWindow):
     @QtCore.pyqtSlot()
     def _on_clear_plot(self) -> None:
         """Clear the plot data for a fresh session."""
-        self.plot_curve.setData([], [])
-        # Reset plot to show from 0 with current timeline
-        self.plot_widget.setXRange(0, self.spinbox_timeline.value(), padding=0)
-        self.plot_widget.setYRange(self.spinbox_y_min.value(), self.spinbox_y_max.value(), padding=0)
+        for _r, _c, panel in self._plot_panels:
+            panel.clear()
 
     @QtCore.pyqtSlot(object)
     def _on_plot_data(self, payload: object) -> None:
         # Handle both single-channel and multi-channel data
         if isinstance(payload, tuple) and len(payload) == 3:
-            # Multi-channel data: (timestamps, channel_a_data, channel_b_data)
-            time_axis, channel_a_data, channel_b_data = payload
-            # For now, just plot Channel A data (we'll add separate plots later)
-            data = channel_a_data
+            # Multi-channel data: (data_a, data_b, time_axis)
+            data_a, data_b, time_axis = payload
         elif isinstance(payload, tuple) and len(payload) == 2:
             # Single-channel data: (data, time_axis)
-            data, time_axis = payload
+            data_a, time_axis = payload
+            data_b = np.array([], dtype=float)
         else:
             # Fallback for unexpected format
             return
         
+        # Update panels
+        for _r, _c, panel in self._plot_panels:
+            if panel.channel == 'A' and data_a.size > 0:
+                panel.update_data(time_axis, data_a)
+            elif panel.channel == 'B' and isinstance(data_b, np.ndarray) and data_b.size > 0:
+                panel.update_data(time_axis, data_b)
+            elif panel.channel == 'MATH':
+                # Math channels will be computed later
+                pass
+
+    # ----- Grid/Plot management -----
+    def _ensure_grid_size(self, min_rows: int, min_cols: int) -> None:
+        """Ensure grid is large enough for the requested dimensions."""
+        # Expand rows if needed
+        while len(self.grid_state) < min_rows:
+            self.grid_state.append([None for _ in range(self.max_cols)])
+        
+        # Expand columns if needed
+        if min_cols > self.max_cols:
+            self.max_cols = min_cols
+            for row in self.grid_state:
+                while len(row) < self.max_cols:
+                    row.append(None)
+
+    def _add_plot_to_grid(self, cfg: 'PlotConfig') -> None:
+        print(f"Adding plot to grid: {cfg.channel}")
+        # Check if a plot for this channel already exists
+        if cfg.channel in ['A', 'B']:
+            for r in range(len(self.grid_state)):
+                for c in range(len(self.grid_state[r])):
+                    if self.grid_state[r][c] == f"plot_{cfg.channel}":
+                        print(f"Channel {cfg.channel} plot already exists at ({r}, {c})")
+                        # Show warning message
+                        QtWidgets.QMessageBox.warning(self, "Duplicate Channel", 
+                            f"A Channel {cfg.channel} plot already exists. Only one plot per channel is allowed.")
+                        return
+        
+        # Determine grid size based on number of plots
+        num_plots = len(self._plot_panels)
+        print(f"Current number of plots: {num_plots}")
+        if num_plots == 0:
+            # First plot: 1x1
+            rows, cols = 1, 1
+        elif num_plots == 1:
+            # Second plot: 2x1
+            rows, cols = 2, 1
+        elif num_plots <= 3:
+            # 3rd-4th plots: 2x2
+            rows, cols = 2, 2
+        elif num_plots <= 5:
+            # 5th-6th plots: 3x2
+            rows, cols = 3, 2
+        else:
+            # 7th+ plots: 3x3
+            rows, cols = 3, 3
+        
+        print(f"Grid sizing: {num_plots} plots -> {rows}x{cols}")
+        
+        # Ensure grid is large enough
+        self._ensure_grid_size(rows, cols)
+        print(f"Grid state after ensure: {self.grid_state}")
+        
+        # Find first available cell
+        for r in range(rows):
+            for c in range(cols):
+                print(f"Checking cell ({r}, {c}): state = {self.grid_state[r][c] if r < len(self.grid_state) and c < len(self.grid_state[r]) else 'OUT_OF_BOUNDS'}")
+                if r < len(self.grid_state) and c < len(self.grid_state[r]):
+                    if self.grid_state[r][c] is None:
+                        print(f"Found available cell at ({r}, {c})")
+                        self._place_plot_in_cell(r, c, cfg)
+                        return
+        
+        # If no available cell found, place in first cell (shouldn't happen but safety net)
+        print(f"Warning: No available cell found, placing in (0,0)")
+        self._place_plot_in_cell(0, 0, cfg)
+
+    def _place_plot_in_cell(self, row: int, col: int, cfg: 'PlotConfig') -> None:
+        """Place a plot in a specific grid cell using robust widget management."""
+        try:
+            # Remove existing widget if any
+            existing_widget = self.grid_widgets.get((row, col))
+            if existing_widget:
+                self.plot_grid_layout.removeWidget(existing_widget)
+                existing_widget.deleteLater()
+                self.grid_widgets.pop((row, col))
+            
+            # Create and add new plot panel
+            panel = PlotPanel(cfg, parent=self.plot_grid_container)
+            self.plot_grid_layout.addWidget(panel, row, col)
+            self.grid_widgets[(row, col)] = panel
+            self.grid_state[row][col] = f"plot_{cfg.channel}"
+            self._plot_panels.append((row, col, panel))
+            
+        except Exception as e:
+            print(f"Error placing plot in cell ({row}, {col}): {e}")
+            import traceback
+            traceback.print_exc()
+
+    def _delete_plot(self, plot_panel: 'PlotPanel') -> None:
+        """Delete a specific plot from the grid."""
+        # Find the plot in the grid
+        for i, (r, c, panel) in enumerate(self._plot_panels):
+            if panel == plot_panel:
+                # Remove from grid
+                self.plot_grid_layout.removeWidget(panel)
+                panel.deleteLater()
+                self.grid_widgets.pop((r, c), None)
+                self.grid_state[r][c] = None
+                self._plot_panels.pop(i)
+                print(f"Deleted plot at ({r}, {c})")
+                break
+
+    # ----- Add Plot Dialog -----
+    def _on_add_plot_clicked(self) -> None:
+        try:
+            print("Add Plot button clicked")
+            dialog = PlotConfigDialog(self)
+            print("Dialog created successfully")
+            if dialog.exec() == QtWidgets.QDialog.DialogCode.Accepted:
+                cfg = dialog.get_config()
+                print(f"Dialog accepted, config: {cfg.channel}, {cfg.title}")
+                self._add_plot_to_grid(cfg)
+                print(f"Plot added successfully. Total plots: {len(self._plot_panels)}")
+            else:
+                print("Dialog cancelled")
+        except Exception as e:
+            print(f"Error in _on_add_plot_clicked: {e}")
+            import traceback
+            traceback.print_exc()
+
+
+# ----- Data classes & UI components -----
+class PlotConfig:
+    def __init__(self, channel: str, coupling: int, voltage_range: int,
+                 y_min: float, y_max: float, y_label: str, title: str, color: QtGui.QColor) -> None:
+        self.channel = channel  # 'A' | 'B' | 'MATH'
+        self.coupling = coupling
+        self.voltage_range = voltage_range
+        self.y_min = y_min
+        self.y_max = y_max
+        self.y_label = y_label
+        self.title = title
+        self.color = color
+
+
+class PlotPanel(QtWidgets.QWidget):
+    def __init__(self, config: PlotConfig, parent: Optional[QtWidgets.QWidget] = None) -> None:
+        super().__init__(parent)
+        self.config = config
+        self.channel = config.channel
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(2, 2, 2, 2)
+        self.plot = pg.PlotWidget(self)
+        self.plot.setBackground("w")
+        self.plot.showGrid(x=True, y=True, alpha=0.3)
+        self.plot.setLabel('left', config.y_label)
+        self.plot.setTitle(config.title)
+        self.curve = self.plot.plot(pen=pg.mkPen(color=config.color, width=2))
+        self.plot.setXRange(0, 60, padding=0)
+        self.plot.setYRange(config.y_min, config.y_max, padding=0)
+        
+        # Allow horizontal scrolling but disable vertical pan/zoom
+        self.plot.setMouseEnabled(x=True, y=False)  # Allow horizontal scrolling
+        self.plot.hideButtons()
+        self.plot.setLimits(xMin=0, xMax=None, yMin=config.y_min, yMax=config.y_max)
+        
+        # Connect to X range changes for synchronized scrolling
+        self.plot.sigRangeChanged.connect(self._on_x_range_changed)
+        
+        layout.addWidget(self.plot, 1)
+        
+        # Edit Plot button
+        self.edit_button = QtWidgets.QPushButton("Edit Plot", self)
+        self.edit_button.clicked.connect(self._on_edit_clicked)
+        layout.addWidget(self.edit_button)
+        
+        # Mirror window on double-click (simplified)
+        self._mirror_window: Optional[QtWidgets.QMainWindow] = None
+        self._mirror_curve = None
+        self._mirror_plot = None
+        
+        # Simple double-click detection
+        self.plot.scene().sigMouseClicked.connect(self._on_mouse_clicked)  # type: ignore[attr-defined]
+
+    def _on_mouse_clicked(self, ev) -> None:
+        # Simple double-click detection - open mirror window
+        if ev.double():
+            self._open_mirror()
+
+    def _on_edit_clicked(self) -> None:
+        """Open edit dialog for this plot."""
+        main = self.window()
+        if isinstance(main, MainWindow):
+            # Create dialog with current config
+            dialog = PlotConfigDialog(main)
+            dialog.set_config(self.config)
+            result = dialog.exec()
+            if result == QtWidgets.QDialog.DialogCode.Accepted:
+                new_config = dialog.get_config()
+                # Update this plot's configuration
+                self.config = new_config
+                self.channel = new_config.channel
+                self.plot.setLabel('left', new_config.y_label)
+                self.plot.setTitle(new_config.title)
+                self.curve.setPen(pg.mkPen(color=new_config.color, width=2))
+                self.plot.setYRange(new_config.y_min, new_config.y_max, padding=0)
+            elif result == QtWidgets.QDialog.DialogCode.Rejected and dialog.is_edit_mode:
+                # Check if delete button was clicked
+                if hasattr(dialog, '_delete_clicked') and dialog._delete_clicked:
+                    # Delete this plot
+                    main._delete_plot(self)
+                # Otherwise, just cancel - don't delete
+
+    def _open_mirror(self) -> None:
+        if self._mirror_window is None:
+            self._mirror_window = QtWidgets.QMainWindow(self)
+            self._mirror_window.setWindowTitle(self.config.title or "Plot")
+            # Set size to match single plot display (similar to 1x1 grid)
+            self._mirror_window.resize(600, 400)
+            w = pg.PlotWidget(self._mirror_window)
+            w.setBackground("w")
+            w.showGrid(x=True, y=True, alpha=0.3)
+            w.setLabel('left', self.config.y_label)
+            w.setTitle(self.config.title + " (Mirror)")
+            
+            # Allow horizontal scrolling but disable vertical pan/zoom
+            w.setMouseEnabled(x=True, y=False)
+            w.hideButtons()
+            w.setLimits(xMin=0, xMax=None, yMin=self.config.y_min, yMax=self.config.y_max)
+            
+            self._mirror_curve = w.plot(pen=pg.mkPen(color=self.config.color, width=2))
+            self._mirror_plot = w
+            self._mirror_window.setCentralWidget(w)
+            
+            # Copy current data if available
+            if hasattr(self, 'curve') and self.curve is not None:
+                try:
+                    x_data, y_data = self.curve.getData()
+                    if x_data is not None and y_data is not None and len(x_data) > 0 and len(y_data) > 0:
+                        self._mirror_curve.setData(x_data, y_data)
+                except:
+                    # If data is not available, just set empty data
+                    self._mirror_curve.setData([], [])
+            
+            # Always copy the current Y and X axis ranges from the main plot
+            w.setYRange(self.config.y_min, self.config.y_max, padding=0)
+            x_range = self.plot.getAxis('bottom').range
+            w.setXRange(x_range[0], x_range[1], padding=0)
+        
+        self._mirror_window.show()
+        self._mirror_window.raise_()
+
+    def update_data(self, time_axis: np.ndarray, data: np.ndarray) -> None:
         if data.size == 0:
             return
-        
-        # Update the plot data
-        self.plot_curve.setData(time_axis, data)
-        
-        # Implement fixed timeline with scrolling when data exceeds timeline
-        if len(time_axis) > 0:
-            max_time = time_axis[-1]
-            timeline = self.spinbox_timeline.value()
+        # Check if curve still exists before updating
+        try:
+            self.curve.setData(time_axis, data)
+        except RuntimeError as e:
+            if "wrapped C/C++ object" in str(e):
+                # Curve was deleted, recreate it
+                self.curve = self.plot.plot(pen=pg.mkPen(color=self.config.color, width=2))
+                self.curve.setData(time_axis, data)
+            else:
+                raise
+        # Scroll X range
+        if time_axis.size > 0:
+            max_time = float(time_axis[-1])
+            # Use global timeline from main window if available
+            main = self.window()
+            if isinstance(main, MainWindow):
+                timeline = main.spinbox_timeline.value()
+            else:
+                timeline = 10.0  # Default timeline
             
             if max_time <= timeline:
-                # Data is within timeline, show from 0 to timeline
-                self.plot_widget.setXRange(0, timeline, padding=0)
+                self.plot.setXRange(0, timeline, padding=0)
             else:
-                # Data exceeds timeline, scroll to show last timeline seconds
-                min_time = max_time - timeline
-                self.plot_widget.setXRange(min_time, max_time, padding=0)
-            
-            # Keep Y axis fixed at user-specified range
-            self.plot_widget.setYRange(self.spinbox_y_min.value(), self.spinbox_y_max.value(), padding=0)
+                self.plot.setXRange(max_time - timeline, max_time, padding=0)
+            self.plot.setYRange(self.config.y_min, self.config.y_max, padding=0)
+        if hasattr(self, '_mirror_curve') and self._mirror_curve is not None:
+            self._mirror_curve.setData(time_axis, data)
+            # Sync X range with main plot
+            if hasattr(self, '_mirror_plot') and self._mirror_plot is not None:
+                x_range = self.plot.getAxis('bottom').range
+                self._mirror_plot.setXRange(x_range[0], x_range[1], padding=0)
+
+    def clear(self) -> None:
+        try:
+            self.curve.setData([], [])
+        except RuntimeError as e:
+            if "wrapped C/C++ object" in str(e):
+                # Curve was deleted, recreate it
+                self.curve = self.plot.plot(pen=pg.mkPen(color=self.config.color, width=2))
+                self.curve.setData([], [])
+            else:
+                raise
+        
+        self.plot.setXRange(0,  self._get_timeline(), padding=0)
+        self.plot.setYRange(self.config.y_min, self.config.y_max, padding=0)
+        
+        if hasattr(self, '_mirror_curve') and self._mirror_curve is not None:
+            try:
+                self._mirror_curve.setData([], [])
+            except RuntimeError as e:
+                if "wrapped C/C++ object" in str(e):
+                    # Mirror curve was deleted, clear the reference
+                    self._mirror_curve = None
+                else:
+                    raise
+
+    def _get_timeline(self) -> float:
+        main = self.window()
+        if isinstance(main, MainWindow):
+            return main.spinbox_timeline.value()
+        return 60.0
+    
+    def _on_x_range_changed(self, plot, ranges) -> None:
+        """Handle X range changes and sync with other plots."""
+        # Only sync if this is a user interaction (not programmatic)
+        if hasattr(self, '_syncing') and self._syncing:
+            return
+        
+        # Get the main window and sync all other plots
+        main = self.window()
+        if isinstance(main, MainWindow):
+            x_range = ranges[0]  # X range is first element
+            main._sync_all_plots_x_range(x_range[0], x_range[1], self)
+
+
+class PlotConfigDialog(QtWidgets.QDialog):
+    def __init__(self, parent: Optional[QtWidgets.QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Add Plot")
+        layout = QtWidgets.QFormLayout(self)
+
+        self.combo_channel = QtWidgets.QComboBox(self)
+        self.combo_channel.addItems(["A", "B", "Math"])
+        layout.addRow("Channel:", self.combo_channel)
+
+        self.combo_coupling = QtWidgets.QComboBox(self)
+        self.combo_coupling.addItems(["DC", "AC"])
+        layout.addRow("Coupling:", self.combo_coupling)
+
+        self.combo_range = QtWidgets.QComboBox(self)
+        for label, enum_val in [("±10 mV",0),("±20 mV",1),("±50 mV",2),("±100 mV",3),("±200 mV",4),("±500 mV",5),("±1 V",6),("±2 V",7),("±5 V",8),("±10 V",9)]:
+            self.combo_range.addItem(label, userData=enum_val)
+        self.combo_range.setCurrentIndex(9)
+        layout.addRow("Range:", self.combo_range)
+
+        self.spin_ymax = QtWidgets.QDoubleSpinBox(self); self.spin_ymax.setRange(0.1, 100.0); self.spin_ymax.setValue(10.0); self.spin_ymax.setSuffix(" V"); self.spin_ymax.setDecimals(1)
+        self.spin_ymin = QtWidgets.QDoubleSpinBox(self); self.spin_ymin.setRange(-100.0, -0.1); self.spin_ymin.setValue(-10.0); self.spin_ymin.setSuffix(" V"); self.spin_ymin.setDecimals(1)
+        layout.addRow("Y-Axis Max:", self.spin_ymax)
+        layout.addRow("Y-Axis Min:", self.spin_ymin)
+
+        self.edit_ylabel = QtWidgets.QLineEdit(self)
+        layout.addRow("Y-Axis Label:", self.edit_ylabel)
+
+        self.edit_title = QtWidgets.QLineEdit(self)
+        layout.addRow("Plot Title:", self.edit_title)
+
+        self.button_color = QtWidgets.QPushButton("Choose Color", self)
+        # Random color assignment
+        import random
+        self._color = QtGui.QColor(random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
+        self.button_color.clicked.connect(self._choose_color)
+        self.button_color.setStyleSheet(f"background-color: {self._color.name()};")
+        layout.addRow("Color:", self.button_color)
+
+        # Create buttons based on mode
+        self.is_edit_mode = False
+        self._delete_clicked = False
+        self.buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.StandardButton.Save | QtWidgets.QDialogButtonBox.StandardButton.Cancel)
+        self.buttons.accepted.connect(self.accept)
+        self.buttons.rejected.connect(self.reject)
+        layout.addRow(self.buttons)
+
+        # Hide coupling/range when Math selected and auto-update title
+        self.combo_channel.currentTextChanged.connect(self._on_channel_changed)
+        self._on_channel_changed(self.combo_channel.currentText())
+        self._update_default_labels()
+        self.combo_channel.currentTextChanged.connect(self._update_default_labels)
+
+    def _choose_color(self) -> None:
+        color = QtWidgets.QColorDialog.getColor(self._color, self, "Select Line Color")
+        if color.isValid():
+            self._color = color
+            self.button_color.setStyleSheet(f"background-color: {color.name()};")
+
+    def _on_channel_changed(self, text: str) -> None:
+        is_math = text.lower() == 'math'
+        self.combo_coupling.setVisible(not is_math)
+        self.combo_range.setVisible(not is_math)
+
+    def _update_default_labels(self) -> None:
+        ch = self.combo_channel.currentText().upper()
+        if ch == 'A' or ch == 'B':
+            self.edit_ylabel.setText('Volts')
+            # Always update title to match channel selection
+            self.edit_title.setText(f"Channel {ch}")
+        else:
+            if not self.edit_ylabel.text():
+                self.edit_ylabel.setText('')
+            # Always update title to match channel selection
+            self.edit_title.setText('Math Channel')
+
+    def set_config(self, config: PlotConfig) -> None:
+        """Set the dialog fields from an existing config."""
+        # Set channel
+        channel_index = self.combo_channel.findText(config.channel)
+        if channel_index >= 0:
+            self.combo_channel.setCurrentIndex(channel_index)
+        
+        # Set coupling
+        coupling_text = "DC" if config.coupling == 1 else "AC"
+        coupling_index = self.combo_coupling.findText(coupling_text)
+        if coupling_index >= 0:
+            self.combo_coupling.setCurrentIndex(coupling_index)
+        
+        # Set range
+        for i in range(self.combo_range.count()):
+            if self.combo_range.itemData(i) == config.voltage_range:
+                self.combo_range.setCurrentIndex(i)
+                break
+        
+        # Set Y-axis values
+        self.spin_ymin.setValue(config.y_min)
+        self.spin_ymax.setValue(config.y_max)
+        
+        # Set labels
+        self.edit_ylabel.setText(config.y_label)
+        self.edit_title.setText(config.title)
+        
+        # Set color
+        self._color = config.color
+        self.button_color.setStyleSheet(f"background-color: {config.color.name()};")
+        
+        # Set edit mode
+        self.set_edit_mode(True)
+
+    def set_edit_mode(self, is_edit: bool) -> None:
+        """Set the dialog to edit mode and add delete button if needed."""
+        self.is_edit_mode = is_edit
+        if is_edit:
+            # Add delete button
+            delete_button = self.buttons.addButton("Delete", QtWidgets.QDialogButtonBox.ButtonRole.DestructiveRole)
+            delete_button.clicked.connect(self._on_delete_clicked)
+            self.setWindowTitle("Edit Plot")
+        else:
+            self.setWindowTitle("Add Plot")
+
+    def _on_delete_clicked(self) -> None:
+        """Handle delete button click."""
+        self._delete_clicked = True
+        self.done(QtWidgets.QDialog.DialogCode.Rejected)  # Use rejected to signal delete
+
+    def get_config(self) -> PlotConfig:
+        ch_text = self.combo_channel.currentText().upper()
+        channel = 'MATH' if ch_text == 'MATH' else ch_text
+        coupling = 1 if self.combo_coupling.currentText() == 'DC' else 0
+        voltage_range = int(self.combo_range.currentData() or 9)
+        return PlotConfig(
+            channel=channel,
+            coupling=coupling,
+            voltage_range=voltage_range,
+            y_min=self.spin_ymin.value(),
+            y_max=self.spin_ymax.value(),
+            y_label=self.edit_ylabel.text(),
+            title=self.edit_title.text(),
+            color=self._color,
+        )
 
 
 

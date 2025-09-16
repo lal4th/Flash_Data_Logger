@@ -42,7 +42,7 @@ class StreamingConfig:
     csv_write_interval_s: float = 1.0  # Write CSV every N seconds
     plot_update_rate_hz: float = 100.0  # Maximum plot update rate for real-time responsiveness
     # v0.7 Multi-channel settings
-    multi_channel_mode: bool = False
+    multi_channel_mode: bool = True
     channel_a_enabled: bool = True
     channel_a_coupling: int = 1
     channel_a_range: int = 8
