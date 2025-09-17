@@ -20,27 +20,36 @@
 - **Zero Offset Functionality**: Accurate baseline measurements with offset correction (programmatic access)
 - **Backward Compatibility**: v0.6 functionality preserved exactly
 
-## 🚀 **Quick Start - Standalone Package Installation**
+## 🚀 **Quick Start - Simple One-Click Installation**
 
 ### **Prerequisites**
 - **Windows 10/11** (64-bit)
 - **Python 3.8+** installed with PATH
 - **PicoScope 4262** connected via USB
-- **PicoSDK** installed
+- **PicoSDK** installed separately
 - **Important**: Close PicoScope desktop application before running
 
 > 📋 **Detailed Prerequisites**: See [PREREQUISITES.md](PREREQUISITES.md) for complete setup guide
 
-### **Easy Installation (Recommended)**
+### **Super Simple Installation**
 
-#### **Option 1: Automated Installer**
-1. **Download** the Flash Data Logger package
-2. **Extract** to desired location
-3. **Double-click** `install_flash_data_logger.bat`
-4. **Follow** the installation prompts
-5. **Run** `run_flash_data_logger.bat` to launch
+#### **One-Click Installer (Recommended)**
+1. **Download** `FlashDataLogger_v0.9_Simple.zip`
+2. **Extract** the zip file
+3. **Right-click** `FlashDataLogger_v0.9_SimpleInstaller.bat`
+4. **Select** "Run as administrator"
+5. **Follow** the prompts (everything is automatic)
+6. **Double-click** the desktop shortcut to launch
 
-#### **Option 2: Manual Installation**
+### **What the Installer Does Automatically**
+- ✅ **Installs to Program Files** - Professional installation location
+- ✅ **Creates Python virtual environment** - Isolated dependencies
+- ✅ **Installs all dependencies** - PyQt6, numpy, picosdk, etc.
+- ✅ **Creates desktop shortcut** - Double-click to launch
+- ✅ **Adds to Start Menu** - Professional Windows integration
+- ✅ **Creates uninstaller** - Clean removal
+
+### **Alternative: Manual Installation**
 ```bash
 # Clone or download the repository
 git clone https://github.com/lal4th/Flash_Data_Logger.git
@@ -53,49 +62,20 @@ python -m venv flash_data_logger_env
 flash_data_logger_env\Scripts\activate.bat
 
 # Install the package
-pip install -e .
+pip install .
 ```
 
 ### **Usage**
 
 #### **Launch Application**
-```bash
-# Option 1: Use the launcher script
-run_flash_data_logger.bat
-
-# Option 2: Use command line
-flash_data_logger_env\Scripts\activate.bat
-flash-data-logger
-
-# Option 3: Direct Python execution
-flash_data_logger_env\Scripts\activate.bat
-python -m app.main
-```
+- **Double-click** desktop shortcut "Flash Data Logger"
+- **Or** find in Start Menu under "Flash Data Logger"
+- **Or** use command line: `python -m app.main`
 
 #### **Test Device Connectivity**
 ```bash
 # Run connectivity test (recommended first step)
-flash_data_logger_env\Scripts\activate.bat
 python scripts\pico_smoketest.py
-```
-
-### **Package Installation Methods**
-
-#### **Development Installation**
-```bash
-pip install -e .  # Editable installation for development
-```
-
-#### **Production Installation**
-```bash
-pip install .  # Standard installation
-```
-
-#### **From Source**
-```bash
-git clone https://github.com/lal4th/Flash_Data_Logger.git
-cd Flash_Data_Logger
-pip install -e .
 ```
 
 ## 🏗️ **Architecture**
