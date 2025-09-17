@@ -20,30 +20,82 @@
 - **Zero Offset Functionality**: Accurate baseline measurements with offset correction (programmatic access)
 - **Backward Compatibility**: v0.6 functionality preserved exactly
 
-## Quick Start
+## 🚀 **Quick Start - Standalone Package Installation**
 
-### Prerequisites
-- Windows 10+
-- PicoScope 4262 connected via USB
-- PicoSDK installed
+### **Prerequisites**
+- **Windows 10/11** (64-bit)
+- **Python 3.8+** installed with PATH
+- **PicoScope 4262** connected via USB
+- **PicoSDK** installed
 - **Important**: Close PicoScope desktop application before running
 
-### Installation
+> 📋 **Detailed Prerequisites**: See [PREREQUISITES.md](PREREQUISITES.md) for complete setup guide
+
+### **Easy Installation (Recommended)**
+
+#### **Option 1: Automated Installer**
+1. **Download** the Flash Data Logger package
+2. **Extract** to desired location
+3. **Double-click** `install_flash_data_logger.bat`
+4. **Follow** the installation prompts
+5. **Run** `run_flash_data_logger.bat` to launch
+
+#### **Option 2: Manual Installation**
+```bash
+# Clone or download the repository
+git clone https://github.com/lal4th/Flash_Data_Logger.git
+cd Flash_Data_Logger
+
+# Create virtual environment
+python -m venv flash_data_logger_env
+
+# Activate virtual environment
+flash_data_logger_env\Scripts\activate.bat
+
+# Install the package
+pip install -e .
+```
+
+### **Usage**
+
+#### **Launch Application**
+```bash
+# Option 1: Use the launcher script
+run_flash_data_logger.bat
+
+# Option 2: Use command line
+flash_data_logger_env\Scripts\activate.bat
+flash-data-logger
+
+# Option 3: Direct Python execution
+flash_data_logger_env\Scripts\activate.bat
+python -m app.main
+```
+
+#### **Test Device Connectivity**
+```bash
+# Run connectivity test (recommended first step)
+flash_data_logger_env\Scripts\activate.bat
+python scripts\pico_smoketest.py
+```
+
+### **Package Installation Methods**
+
+#### **Development Installation**
+```bash
+pip install -e .  # Editable installation for development
+```
+
+#### **Production Installation**
+```bash
+pip install .  # Standard installation
+```
+
+#### **From Source**
 ```bash
 git clone https://github.com/lal4th/Flash_Data_Logger.git
 cd Flash_Data_Logger
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-```
-
-### Usage
-```bash
-# Run the GUI application
-.venv\Scripts\python.exe -m app.main
-
-# Test device connectivity (run this first if having issues)
-.venv\Scripts\python.exe scripts\pico_smoketest.py
+pip install -e .
 ```
 
 ## 🏗️ **Architecture**
@@ -155,16 +207,24 @@ pip install -r requirements.txt
 
 ## 🛠️ **Troubleshooting**
 
-### **Common Issues**
+### **Installation Issues**
+- **Python not found**: Install Python 3.8+ with "Add to PATH" checked
+- **Permission denied**: Run Command Prompt as Administrator
+- **Package installation fails**: Check internet connection and try `pip install --upgrade pip`
+
+### **Runtime Issues**
 - **Device not detected**: Check USB connection and PicoSDK installation
+- **PicoScope conflicts**: Ensure PicoScope desktop application is completely closed
+- **DLL not found**: Verify PicoSDK installation and add to PATH if needed
 - **±5V range saturation**: Use ±10V or ±20V ranges for accurate readings
 - **Performance issues**: Close other applications and check system resources
-- **High sample rate crashes**: Use streaming architecture (default in v0.5)
 
-### **Support**
-- **Connectivity Test**: Run `python scripts/pico_smoketest.py` first
-- **Debug Mode**: Check console output for detailed status messages
-- **Cache Management**: Clear cache directory if experiencing storage issues
+### **Support Resources**
+- **📋 Prerequisites Guide**: [PREREQUISITES.md](PREREQUISITES.md) - Complete setup guide
+- **🔧 Connectivity Test**: Run `python scripts/pico_smoketest.py` first
+- **🐛 Debug Mode**: Check console output for detailed status messages
+- **💾 Cache Management**: Clear cache directory if experiencing storage issues
+- **📞 GitHub Issues**: [Report problems](https://github.com/lal4th/Flash_Data_Logger/issues)
 
 ## 🤝 **Contributing**
 

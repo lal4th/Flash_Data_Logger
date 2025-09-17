@@ -1,0 +1,101 @@
+[build-system]
+requires = ["setuptools>=45", "wheel", "setuptools_scm[toml]>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flash-data-logger"
+version = "0.9.0"
+description = "Production-ready PC application for high-performance real-time data acquisition from PicoScope oscilloscopes"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "Flash Data Logger Team"}
+]
+maintainers = [
+    {name = "Flash Data Logger Team"}
+]
+keywords = ["picoscope", "oscilloscope", "data-acquisition", "real-time", "streaming", "math-channels", "csv-export"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "Topic :: Scientific/Engineering :: Physics",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Operating System :: Microsoft :: Windows",
+]
+requires-python = ">=3.8"
+dependencies = [
+    "annotated-types==0.7.0",
+    "numpy==2.3.3",
+    "pandas==2.3.2",
+    "picosdk==1.1",
+    "pydantic==2.11.7",
+    "pydantic_core==2.33.2",
+    "PyQt6==6.9.1",
+    "PyQt6-Qt6==6.9.2",
+    "PyQt6_sip==13.10.2",
+    "pyqtgraph==0.13.7",
+    "python-dateutil==2.9.0.post0",
+    "pytz==2025.2",
+    "scipy==1.16.2",
+    "six==1.17.0",
+    "typing-inspection==0.4.1",
+    "typing_extensions==4.15.0",
+    "tzdata==2025.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=6.0",
+    "pytest-cov",
+    "black",
+    "flake8",
+    "mypy",
+]
+
+[project.urls]
+Homepage = "https://github.com/lal4th/Flash_Data_Logger"
+Documentation = "https://github.com/lal4th/Flash_Data_Logger/blob/main/README.md"
+Repository = "https://github.com/lal4th/Flash_Data_Logger.git"
+"Bug Tracker" = "https://github.com/lal4th/Flash_Data_Logger/issues"
+
+[project.scripts]
+flash-data-logger = "app.main:run"
+fdl = "app.main:run"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*", "scripts*"]
+
+[tool.setuptools.package-data]
+"*" = ["*.md", "*.txt", "*.pdf", "*.bat"]
+
+[tool.black]
+line-length = 88
+target-version = ['py38']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
