@@ -57,77 +57,65 @@ REM Create installation directory
 echo Creating installation directory...
 if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"
 
-REM Copy application files (check current directory and parent directory)
-echo Copying application files...
-if exist "app" (
-    echo Found app directory in current location
-    xcopy /E /I /Y "app" "%INSTALL_DIR%\app"
-) else if exist "..\app" (
-    echo Found app directory in parent location
-    xcopy /E /I /Y "..\app" "%INSTALL_DIR%\app"
-) else (
-    echo ERROR: Application files not found!
-    echo.
-    echo The installer is looking for the 'app' directory in:
-    echo - Current directory: %CD%
-    echo - Parent directory: %CD%\..
-    echo.
-    echo Please ensure this installer is run from the correct location:
-    echo - Either from the root Flash Data Logger directory
-    echo - Or from the FlashDataLogger_v0.9_Simple directory
-    echo.
+REM Determine source directory - check if we're in the right place
+echo Determining source files location...
+set "SOURCE_DIR=%CD%"
+
+REM Check if we have the required files in current directory
+if exist "app" if exist "requirements.txt" (
+    echo Found source files in current directory: %CD%
+    set "SOURCE_DIR=%CD%"
+    goto :copy_files
+)
+
+REM Check parent directory
+if exist "..\app" if exist "..\requirements.txt" (
+    echo Found source files in parent directory: %CD%\..
+    set "SOURCE_DIR=%CD%\.."
+    goto :copy_files
+)
+
+REM If we get here, files are not found
+echo ERROR: Application files not found!
+echo.
+echo The installer is looking for the 'app' directory and 'requirements.txt' in:
+echo - Current directory: %CD%
+echo - Parent directory: %CD%\..
+echo.
+echo Please ensure this installer is run from the correct location:
+echo - Either from the root Flash Data Logger directory
+echo - Or from the FlashDataLogger_v0.9_Simple directory
+echo.
+echo Required files: app\ directory and requirements.txt
+echo.
+pause
+exit /b 1
+
+:copy_files
+echo Copying application files from: %SOURCE_DIR%
+echo.
+
+REM Copy application files from determined source directory
+xcopy /E /I /Y "%SOURCE_DIR%\app" "%INSTALL_DIR%\app"
+if errorlevel 1 (
+    echo ERROR: Failed to copy app directory
     pause
     exit /b 1
 )
 
-REM Copy other files (check both current and parent directory)
-if exist "scripts" (
-    xcopy /E /I /Y "scripts" "%INSTALL_DIR%\scripts"
-) else if exist "..\scripts" (
-    xcopy /E /I /Y "..\scripts" "%INSTALL_DIR%\scripts"
+REM Copy scripts directory if it exists
+if exist "%SOURCE_DIR%\scripts" (
+    xcopy /E /I /Y "%SOURCE_DIR%\scripts" "%INSTALL_DIR%\scripts"
 )
 
-if exist "requirements.txt" (
-    copy /Y "requirements.txt" "%INSTALL_DIR%\"
-) else if exist "..\requirements.txt" (
-    copy /Y "..\requirements.txt" "%INSTALL_DIR%\"
-)
-
-if exist "setup.py" (
-    copy /Y "setup.py" "%INSTALL_DIR%\"
-) else if exist "..\setup.py" (
-    copy /Y "..\setup.py" "%INSTALL_DIR%\"
-)
-
-if exist "pyproject.toml" (
-    copy /Y "pyproject.toml" "%INSTALL_DIR%\"
-) else if exist "..\pyproject.toml" (
-    copy /Y "..\pyproject.toml" "%INSTALL_DIR%\"
-)
-
-if exist "MANIFEST.in" (
-    copy /Y "MANIFEST.in" "%INSTALL_DIR%\"
-) else if exist "..\MANIFEST.in" (
-    copy /Y "..\MANIFEST.in" "%INSTALL_DIR%\"
-)
-
-if exist "LICENSE" (
-    copy /Y "LICENSE" "%INSTALL_DIR%\"
-) else if exist "..\LICENSE" (
-    copy /Y "..\LICENSE" "%INSTALL_DIR%\"
-)
-
-if exist "README.md" (
-    copy /Y "README.md" "%INSTALL_DIR%\"
-) else if exist "..\README.md" (
-    copy /Y "..\README.md" "%INSTALL_DIR%\"
-)
-
-if exist "PREREQUISITES.md" (
-    copy /Y "PREREQUISITES.md" "%INSTALL_DIR%\"
-) else if exist "..\PREREQUISITES.md" (
-    copy /Y "..\PREREQUISITES.md" "%INSTALL_DIR%\"
-)
+REM Copy configuration files
+if exist "%SOURCE_DIR%\requirements.txt" copy /Y "%SOURCE_DIR%\requirements.txt" "%INSTALL_DIR%\"
+if exist "%SOURCE_DIR%\setup.py" copy /Y "%SOURCE_DIR%\setup.py" "%INSTALL_DIR%\"
+if exist "%SOURCE_DIR%\pyproject.toml" copy /Y "%SOURCE_DIR%\pyproject.toml" "%INSTALL_DIR%\"
+if exist "%SOURCE_DIR%\MANIFEST.in" copy /Y "%SOURCE_DIR%\MANIFEST.in" "%INSTALL_DIR%\"
+if exist "%SOURCE_DIR%\LICENSE" copy /Y "%SOURCE_DIR%\LICENSE" "%INSTALL_DIR%\"
+if exist "%SOURCE_DIR%\README.md" copy /Y "%SOURCE_DIR%\README.md" "%INSTALL_DIR%\"
+if exist "%SOURCE_DIR%\PREREQUISITES.md" copy /Y "%SOURCE_DIR%\PREREQUISITES.md" "%INSTALL_DIR%\"
 
 echo Application files copied successfully.
 echo.
