@@ -70,7 +70,8 @@ echo.
 
 REM Install the package
 echo Installing Flash Data Logger v0.9...
-pip install -e .
+REM Use non-editable install to avoid pyproject editable build issues on some systems
+pip install .
 if errorlevel 1 (
     echo ERROR: Failed to install Flash Data Logger
     echo This may be due to missing dependencies or network issues
@@ -84,8 +85,8 @@ if errorlevel 1 (
         exit /b 1
     )
     echo Dependencies installed successfully
-    echo Retrying package installation...
-    pip install -e .
+    echo Retrying package installation (non-editable)...
+    pip install .
     if errorlevel 1 (
         echo ERROR: Package installation failed
         pause

@@ -7,9 +7,18 @@ from setuptools import setup, find_packages
 import os
 from pathlib import Path
 
-# Read the README file
+# Read the README file with robust encoding handling
 this_directory = Path(__file__).parent
-long_description = (this_directory / "README.md").read_text(encoding='utf-8')
+readme_path = this_directory / "README.md"
+try:
+    long_description = readme_path.read_text(encoding="utf-8")
+except UnicodeDecodeError:
+    try:
+        # Handle BOM/UTF-16 scenarios gracefully
+        long_description = readme_path.read_text(encoding="utf-8-sig")
+    except UnicodeDecodeError:
+        # Fallback to latin-1 to avoid install-time failures on some systems
+        long_description = readme_path.read_text(encoding="latin-1")
 
 # Read requirements
 requirements = []
