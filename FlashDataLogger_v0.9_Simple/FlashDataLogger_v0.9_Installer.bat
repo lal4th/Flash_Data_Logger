@@ -1,11 +1,14 @@
 @echo off
-REM Flash Data Logger v0.9 - Simple One-Click Installer
-REM This is a single file that installs everything automatically
+REM Flash Data Logger v0.9 - Fixed Installer
+REM This version automatically changes to the correct directory
 
-title Flash Data Logger v0.9 - Simple Installer
+title Flash Data Logger v0.9 - Fixed Installer
+
+REM Change to the directory where this batch file is located
+cd /d "%~dp0"
 
 echo ========================================
-echo Flash Data Logger v0.9 - Simple Installer
+echo Flash Data Logger v0.9 - Fixed Installer
 echo ========================================
 echo.
 echo This installer will automatically:
@@ -240,31 +243,6 @@ echo pause
 
 echo Uninstaller created.
 echo.
-
-REM Create a simple README for the installation
-(
-echo Flash Data Logger v0.9 - Installation Complete
-echo ==============================================
-echo.
-echo Installation Location: %INSTALL_DIR%
-echo.
-echo To launch Flash Data Logger:
-echo - Double-click the desktop shortcut "Flash Data Logger"
-echo - Or find it in the Start Menu under "Flash Data Logger"
-echo.
-echo Prerequisites:
-echo - PicoScope 4262 connected via USB
-echo - PicoSDK installed (download from Pico Technology website)
-echo - Close PicoScope desktop application before running
-echo.
-echo Troubleshooting:
-echo - See PREREQUISITES.md for detailed setup instructions
-echo - Run the connectivity test: python scripts\pico_smoketest.py
-echo.
-echo To uninstall:
-echo - Run uninstall.bat in the installation directory
-echo.
-) > "%INSTALL_DIR%\INSTALLATION_COMPLETE.txt"
 
 echo.
 echo ========================================

@@ -36,7 +36,7 @@
 #### **One-Click Installer (Recommended)**
 1. **Download** `FlashDataLogger_v0.9_Simple.zip`
 2. **Extract** the zip file
-3. **Right-click** `FlashDataLogger_v0.9_SimpleInstaller.bat`
+3. **Right-click** `FlashDataLogger_v0.9_Installer.bat`
 4. **Select** "Run as administrator"
 5. **Follow** the prompts (everything is automatic)
 6. **Double-click** the desktop shortcut to launch
