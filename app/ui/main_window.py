@@ -175,6 +175,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._plot_update_timer.timeout.connect(self._update_plots)
         self._plot_update_timer.start(100)  # Update every 100ms (10 Hz)
 
+
     def _on_status_update(self, message: str) -> None:
         """Handle status updates from the controller."""
         # You can add status display logic here if needed
@@ -213,8 +214,19 @@ class MainWindow(QtWidgets.QMainWindow):
 
     # ----- Controller callbacks -----
     def _on_start_clicked(self) -> None:
+        print(f"DEBUG: _on_start_clicked() called")
+        print(f"DEBUG: controller._pico_source = {getattr(self.controller, '_pico_source', 'NOT_FOUND')}")
+        print(f"DEBUG: controller._pico_6000_source = {getattr(self.controller, '_pico_6000_source', 'NOT_FOUND')}")
+        
         # Check if PicoScope is connected before starting
-        if not hasattr(self.controller, '_pico_source') or self.controller._pico_source is None:
+        has_pico_source = hasattr(self.controller, '_pico_source') and self.controller._pico_source is not None
+        has_pico_6000_source = hasattr(self.controller, '_pico_6000_source') and self.controller._pico_6000_source is not None
+        
+        print(f"DEBUG: has_pico_source = {has_pico_source}")
+        print(f"DEBUG: has_pico_6000_source = {has_pico_6000_source}")
+        
+        if not has_pico_source and not has_pico_6000_source:
+            print(f"DEBUG: No device detected, showing warning")
             QtWidgets.QMessageBox.warning(self, "Device Not Connected", 
                 "No PicoScope device detected. Please connect a PicoScope and try again.")
             return
@@ -572,10 +584,25 @@ class PlotPanel(QtWidgets.QWidget):
         self._time_buffer.append(timestamp)
         self._data_buffer.append(value)
         
-        # Keep only the last 1000 points for performance
-        if len(self._time_buffer) > 1000:
-            self._time_buffer = self._time_buffer[-1000:]
-            self._data_buffer = self._data_buffer[-1000:]
+        # Dynamic buffer sizing based on timeline and sample rate
+        main = self.window()
+        if isinstance(main, MainWindow):
+            timeline = main.spinbox_timeline.value()
+            sample_rate = main.combo_samplerate.currentText().replace(' Hz', '')
+            try:
+                sample_rate_hz = float(sample_rate)
+                # Calculate buffer size: timeline * sample_rate * 1.5 (50% extra for smooth scrolling)
+                buffer_size = int(timeline * sample_rate_hz * 1.5)
+                buffer_size = max(1000, min(buffer_size, 100000))  # Min 1000, max 100k points
+            except (ValueError, AttributeError):
+                buffer_size = 1000  # Fallback
+        else:
+            buffer_size = 1000  # Fallback
+        
+        # Keep only the last buffer_size points for performance
+        if len(self._time_buffer) > buffer_size:
+            self._time_buffer = self._time_buffer[-buffer_size:]
+            self._data_buffer = self._data_buffer[-buffer_size:]
         
         # Update the plot
         if self._time_buffer and self._data_buffer:
@@ -593,6 +620,7 @@ class PlotPanel(QtWidgets.QWidget):
             # Scroll X range
             if self._time_buffer:
                 max_time = float(self._time_buffer[-1])
+                min_time = float(self._time_buffer[0])
                 # Use global timeline from main window if available
                 main = self.window()
                 if isinstance(main, MainWindow):
@@ -600,9 +628,12 @@ class PlotPanel(QtWidgets.QWidget):
                 else:
                     timeline = 10.0  # Default timeline
                 
+                # Always follow the data with a rolling window
                 if max_time <= timeline:
-                    self.plot.setXRange(0, timeline, padding=0)
+                    # If we haven't reached the timeline yet, show from 0 to current max
+                    self.plot.setXRange(0, max(timeline, max_time), padding=0)
                 else:
+                    # Rolling window: show the last 'timeline' seconds of data
                     self.plot.setXRange(max_time - timeline, max_time, padding=0)
                 self.plot.setYRange(self.config.y_min, self.config.y_max, padding=0)
             
@@ -763,7 +794,19 @@ class PlotConfigDialog(QtWidgets.QDialog):
         layout = QtWidgets.QFormLayout(self)
 
         self.combo_channel = QtWidgets.QComboBox(self)
-        self.combo_channel.addItems(["A", "B", "Math"])
+        
+        # Get available channels from controller if available
+        if parent and hasattr(parent, 'controller') and hasattr(parent.controller, 'get_available_channels'):
+            available_channels = parent.controller.get_available_channels()
+            # Add physical channels
+            for channel in available_channels:
+                self.combo_channel.addItem(channel)
+        else:
+            # Fallback to default channels
+            self.combo_channel.addItems(["A", "B"])
+        
+        # Always add Math channel
+        self.combo_channel.addItem("Math")
         layout.addRow("Channel:", self.combo_channel)
 
         # Create containers for coupling and range to hide entire rows

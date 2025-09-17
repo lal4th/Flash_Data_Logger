@@ -19,6 +19,8 @@ from PyQt6 import QtCore
 
 from app.acquisition.source import AcquisitionSource
 from app.acquisition.pico_direct import PicoDirectSource, test_device_connection
+from app.acquisition.pico_6000_direct import Pico6000DirectSource, test_device_connection as test_6000_connection
+from app.acquisition.pico import detect_picoscope
 from app.processing.pipeline import ProcessingPipeline
 from app.processing.math_engine import MathEngine, MathChannelConfig
 from app.storage.csv_writer import CsvWriter
@@ -68,6 +70,9 @@ class StreamingController(QtCore.QObject):
         self._config = StreamingConfig()
         self._source: Optional[AcquisitionSource] = None
         self._pico_source: Optional[PicoDirectSource] = None
+        self._pico_6000_source: Optional[Pico6000DirectSource] = None
+        self._detected_device = None
+        self._available_channels = ['A', 'B']  # Default for 4262
         self._pipeline = ProcessingPipeline()
         self._math_engine = MathEngine()
         
@@ -309,7 +314,7 @@ class StreamingController(QtCore.QObject):
             self.signal_status.emit("Cannot zero offset while acquisition is running - stop first")
             return
         
-        if self._pico_source is None:
+        if self._pico_source is None and self._pico_6000_source is None:
             self.signal_status.emit("Cannot zero offset - no device available")
             return
         
@@ -318,9 +323,10 @@ class StreamingController(QtCore.QObject):
             
             # Take 100 samples from the current channel
             samples = []
+            source = self._pico_source if self._pico_source is not None else self._pico_6000_source
             for _ in range(100):
                 try:
-                    value, _ = self._pico_source.read()
+                    value, _ = source.read()
                     samples.append(value)
                 except Exception as e:
                     self.signal_status.emit(f"Error taking sample: {e}")
@@ -343,6 +349,10 @@ class StreamingController(QtCore.QObject):
     def get_channel_offset(self, channel: int) -> float:
         """Get the current offset for a specific channel."""
         return self._channel_offsets.get(channel, 0.0)
+    
+    def get_available_channels(self) -> list:
+        """Get list of available channels for the connected device."""
+        return self._available_channels
 
     def _create_cache_filename(self) -> Path:
         """Create timestamped cache filename with unique timestamp for each session."""
@@ -353,27 +363,63 @@ class StreamingController(QtCore.QObject):
 
     # ----- Lifecycle -----
     def probe_device(self) -> None:
-        """Test PicoScope DLL availability and open device once."""
-        success, message = test_device_connection()
-        if success:
+        """Test PicoScope DLL availability and detect connected device."""
+        # Use the new multi-device detection
+        device_info, diagnostics = detect_picoscope()
+        
+        if device_info:
+            self._detected_device = device_info
+            self._device_available = True
+            
+            # Create appropriate source based on detected device
             try:
-                self._pico_source = PicoDirectSource()
-                self._pico_source.configure(
-                    sample_rate_hz=self._config.sample_rate_hz,
-                    channel=self._config.channel,
-                    coupling=self._config.coupling,
-                    voltage_range=self._config.voltage_range,
-                    resolution_bits=self._config.resolution_bits,
-                )
-                self.signal_status.emit(f"✓ {message} (device opened)")
+                if device_info.api == "ps6000a":
+                    # 6824E (6000 series)
+                    self._pico_6000_source = Pico6000DirectSource()
+                    if self._pico_6000_source.connect():
+                        self.signal_status.emit(f"✓ Connected to {device_info.model} (6824E)")
+                        # Get available channels from device
+                        self._available_channels = self._pico_6000_source.get_available_channels()
+                        # Configure default channel
+                        self._pico_6000_source.configure_channel(
+                            channel=self._config.channel,
+                            enabled=True,
+                            coupling=self._config.coupling,
+                            range_val=self._config.voltage_range
+                        )
+                    else:
+                        self._pico_6000_source = None
+                        self._device_available = False
+                        self.signal_status.emit(f"⚠ Failed to connect to {device_info.model}")
+                        
+                elif device_info.api in ("ps4000", "ps4000a"):
+                    # 4262 (4000 series)
+                    self._pico_source = PicoDirectSource()
+                    self._pico_source.configure(
+                        sample_rate_hz=self._config.sample_rate_hz,
+                        channel=self._config.channel,
+                        coupling=self._config.coupling,
+                        voltage_range=self._config.voltage_range,
+                        resolution_bits=self._config.resolution_bits,
+                    )
+                    self.signal_status.emit(f"✓ Connected to {device_info.model} (4262)")
+                    
+                else:
+                    self.signal_status.emit(f"⚠ Unsupported device API: {device_info.api}")
+                    self._device_available = False
+                    
             except Exception as ex:
                 self._pico_source = None
-                self.signal_status.emit(f"⚠ {message} - Device open failed: {ex}")
+                self._pico_6000_source = None
+                self._device_available = False
+                self.signal_status.emit(f"⚠ Device connection failed: {ex}")
         else:
-            self.signal_status.emit(f"⚠ {message}")
+            self._device_available = False
+            self.signal_status.emit(f"⚠ No PicoScope device found. Diagnostics: {diagnostics}")
 
     def start(self) -> None:
         """Start streaming acquisition with optimal architecture."""
+        
         if self._acquisition_thread and self._acquisition_thread.is_alive():
             return
         
@@ -386,6 +432,10 @@ class StreamingController(QtCore.QObject):
         self._samples_acquired = 0
         self._samples_processed = 0
         self._samples_saved = 0
+        
+        # Set session start time for relative timestamps
+        from datetime import datetime
+        self._session_start_time = datetime.now()
         
         # Clear accumulated plot data
         self._accumulated_plot_data_a = []
@@ -514,6 +564,17 @@ class StreamingController(QtCore.QObject):
                 if hasattr(self._pico_source, '_buffer_start_sample'):
                     self._pico_source._buffer_start_sample = 0
         
+        # Reset the persistent Pico6000DirectSource if it exists
+        if self._pico_6000_source is not None:
+            if hasattr(self._pico_6000_source, 'reset_session'):
+                self._pico_6000_source.reset_session()
+            else:
+                # Fallback for other source types
+                self._pico_6000_source._sample_count = 0
+                self._pico_6000_source._start_time = None
+                if hasattr(self._pico_6000_source, '_buffer_start_sample'):
+                    self._pico_6000_source._buffer_start_sample = 0
+        
         # Also reset current source if it's different
         if hasattr(self._source, 'reset_session'):
             self._source.reset_session()
@@ -534,12 +595,23 @@ class StreamingController(QtCore.QObject):
             except Exception:
                 pass
             self._pico_source = None
+        
+        if self._pico_6000_source is not None:
+            try:
+                self._pico_6000_source.close()
+            except Exception:
+                pass
+            self._pico_6000_source = None
 
     # ----- Streaming Architecture Implementation -----
     def _setup_data_source(self) -> str:
         """Setup the data source for streaming. Requires real PicoScope connection."""
+        print(f"DEBUG: _setup_data_source() called")
+        print(f"DEBUG: _pico_source = {self._pico_source}")
+        print(f"DEBUG: _pico_6000_source = {self._pico_6000_source}")
+        
         if self._pico_source is not None:
-            # Reuse the device that was opened at startup
+            # Reuse the 4262 device that was opened at startup
             self._source = self._pico_source
             try:
                 if self._config.multi_channel_mode:
@@ -569,12 +641,14 @@ class StreamingController(QtCore.QObject):
                     return "Using Pico source (ps4000) - single channel mode"
             except Exception as ex:
                 raise RuntimeError(f"Pico reconfigure failed: {ex}")
-        else:
-            # Create new source - no fallback
+        elif self._pico_6000_source is not None:
+            # Reuse the 6824E device that was opened at startup
+            print(f"DEBUG: Using _pico_6000_source for 6824E")
+            self._source = self._pico_6000_source
             try:
-                self._source = PicoDirectSource()
                 if self._config.multi_channel_mode:
                     # Configure for multi-channel acquisition
+                    print(f"DEBUG: Configuring 6824E for multi-channel mode")
                     self._source.configure_multi_channel(
                         sample_rate_hz=self._config.sample_rate_hz,
                         channel_a_enabled=self._config.channel_a_enabled,
@@ -587,9 +661,11 @@ class StreamingController(QtCore.QObject):
                         channel_b_offset=self._config.channel_b_offset,
                         resolution_bits=self._config.resolution_bits,
                     )
-                    return "Using Pico source (ps4000) - new device, multi-channel mode"
+                    return "Using Pico source (ps6000a) - 6824E multi-channel mode"
                 else:
-                    # Configure for single channel acquisition (v0.6 compatibility)
+                    # Configure for single channel acquisition
+                    print(f"DEBUG: Configuring 6824E for single channel mode")
+                    print(f"DEBUG: About to call configure() on 6824E")
                     self._source.configure(
                         sample_rate_hz=self._config.sample_rate_hz,
                         channel=self._config.channel,
@@ -597,9 +673,16 @@ class StreamingController(QtCore.QObject):
                         voltage_range=self._config.voltage_range,
                         resolution_bits=self._config.resolution_bits,
                     )
-                    return "Using Pico source (ps4000) - new device, single channel mode"
+                    print(f"DEBUG: configure() completed successfully")
+                    return "Using Pico source (ps6000a) - 6824E single channel mode"
             except Exception as ex:
-                raise RuntimeError(f"Pico init failed: {ex}")
+                print(f"DEBUG: Exception in 6824E configuration: {ex}")
+                import traceback
+                traceback.print_exc()
+                raise RuntimeError(f"Pico 6824E reconfigure failed: {ex}")
+        else:
+            # No device available
+            raise RuntimeError("No PicoScope Device detected - please check connection and restart application")
 
     def _acquisition_loop(self) -> None:
         """Main acquisition loop using block-based streaming."""
@@ -653,7 +736,7 @@ class StreamingController(QtCore.QObject):
             # Limit block size for responsiveness (max 50 samples per block)
             samples_per_block = min(samples_per_block, 50)
             
-            for _ in range(samples_per_block):
+            for i in range(samples_per_block):
                 if self._stop_event.is_set():
                     break
                 
@@ -680,6 +763,14 @@ class StreamingController(QtCore.QObject):
             channel_b_offset = self._channel_offsets.get(1, 0.0)
             
             for timestamp, channel_a_value, channel_b_value in block_data:
+                # Convert absolute timestamp to relative time from session start
+                if self._session_start_time is not None:
+                    from datetime import datetime
+                    absolute_time = datetime.fromtimestamp(timestamp)
+                    relative_seconds = (absolute_time - self._session_start_time).total_seconds()
+                else:
+                    relative_seconds = timestamp  # Fallback to absolute time
+                
                 # Apply channel offsets: (raw voltage + offset)
                 offset_adjusted_a = channel_a_value + channel_a_offset
                 offset_adjusted_b = channel_b_value + channel_b_offset
@@ -692,8 +783,8 @@ class StreamingController(QtCore.QObject):
                 # Calculate math channel values
                 math_results = self._math_engine.update_channel_data(processed_a, processed_b)
                 
-                # Store the data structure with math channel results (timestamp, channel_a, channel_b, math_results)
-                processed_data.append((timestamp, processed_a, processed_b, math_results))
+                # Store the data structure with math channel results (relative_timestamp, channel_a, channel_b, math_results)
+                processed_data.append((relative_seconds, processed_a, processed_b, math_results))
                 
                 # Store math results separately for later use
                 self._math_results = math_results

@@ -12,6 +12,8 @@ from PyQt6 import QtCore
 
 from app.acquisition.source import AcquisitionSource
 from app.acquisition.pico_direct import PicoDirectSource, test_device_connection
+from app.acquisition.pico_6000_direct import Pico6000DirectSource, test_device_connection as test_6000_connection
+from app.acquisition.pico import detect_picoscope
 from app.processing.pipeline import ProcessingPipeline
 from app.storage.csv_writer import CsvWriter
 
@@ -46,6 +48,9 @@ class AppController(QtCore.QObject):
         self._config = ControllerConfig()
         self._source: Optional[AcquisitionSource] = None
         self._pico_source: Optional[PicoDirectSource] = None
+        self._pico_6000_source: Optional[Pico6000DirectSource] = None
+        self._detected_device = None
+        self._available_channels = ['A', 'B']  # Default for 4262
         self._pipeline = ProcessingPipeline()
         self._writer: Optional[CsvWriter] = None
         self._cache_writer: Optional[CsvWriter] = None
@@ -74,6 +79,10 @@ class AppController(QtCore.QObject):
     def set_channel(self, channel_index: int) -> None:
         self._config.channel = int(channel_index)
         self.signal_status.emit(f"Channel: {'AB'[channel_index] if channel_index in (0, 1) else channel_index}")
+    
+    def get_available_channels(self) -> list:
+        """Get list of available channels for the connected device."""
+        return self._available_channels
 
     def set_coupling(self, coupling: int) -> None:
         # 1=DC, 0=AC according to ps4000SetChannel
@@ -118,27 +127,59 @@ class AppController(QtCore.QObject):
 
     # ----- Lifecycle -----
     def probe_device(self) -> None:
-        """Test PicoScope DLL availability and open device once (popup acceptable at startup)."""
-        success, message = test_device_connection()
-        self._device_available = success
-        if success:
-            # Create and open the PicoDirectSource once at startup
+        """Test PicoScope DLL availability and detect connected device."""
+        # Use the new multi-device detection
+        device_info, diagnostics = detect_picoscope()
+        
+        if device_info:
+            self._detected_device = device_info
+            self._device_available = True
+            
+            # Create appropriate source based on detected device
             try:
-                self._pico_source = PicoDirectSource()
-                # Configure with default settings to open the device
-                self._pico_source.configure(
-                    sample_rate_hz=self._config.sample_rate_hz,
-                    channel=self._config.channel,
-                    coupling=self._config.coupling,
-                    voltage_range=self._config.voltage_range,
-                    resolution_bits=self._config.resolution_bits,
-                )
-                self.signal_status.emit(f"✓ {message} (device opened)")
+                if device_info.api == "ps6000a":
+                    # 6824E (6000 series)
+                    self._pico_6000_source = Pico6000DirectSource()
+                    if self._pico_6000_source.connect():
+                        self.signal_status.emit(f"✓ Connected to {device_info.model} (6824E)")
+                        # Get available channels from device
+                        self._available_channels = self._pico_6000_source.get_available_channels()
+                        # Configure default channel
+                        self._pico_6000_source.configure_channel(
+                            channel=self._config.channel,
+                            enabled=True,
+                            coupling=self._config.coupling,
+                            range_val=self._config.voltage_range
+                        )
+                    else:
+                        self._pico_6000_source = None
+                        self._device_available = False
+                        self.signal_status.emit(f"⚠ Failed to connect to {device_info.model}")
+                        
+                elif device_info.api in ("ps4000", "ps4000a"):
+                    # 4262 (4000 series)
+                    self._pico_source = PicoDirectSource()
+                    self._pico_source.configure(
+                        sample_rate_hz=self._config.sample_rate_hz,
+                        channel=self._config.channel,
+                        coupling=self._config.coupling,
+                        voltage_range=self._config.voltage_range,
+                        resolution_bits=self._config.resolution_bits,
+                    )
+                    self.signal_status.emit(f"✓ Connected to {device_info.model} (4262)")
+                    
+                else:
+                    self.signal_status.emit(f"⚠ Unsupported device API: {device_info.api}")
+                    self._device_available = False
+                    
             except Exception as ex:
                 self._pico_source = None
-                self.signal_status.emit(f"⚠ {message} - Device open failed: {ex}")
+                self._pico_6000_source = None
+                self._device_available = False
+                self.signal_status.emit(f"⚠ Device connection failed: {ex}")
         else:
-            self.signal_status.emit(f"⚠ {message}")
+            self._device_available = False
+            self.signal_status.emit(f"⚠ No PicoScope device found. Diagnostics: {diagnostics}")
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():

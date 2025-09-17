@@ -98,8 +98,8 @@ def detect_picoscope() -> tuple[Optional[PicoDeviceInfo], str]:
     if preloaded:
         diagnostics.append(f"preloaded: {', '.join(preloaded)}")
 
-    # Try ps4000 first (covers 4262)
-    for api_name in ("ps4000", "ps4000a"):
+    # Try ps4000 first (covers 4262), then ps6000a (covers 6824E)
+    for api_name in ("ps4000", "ps4000a", "ps6000a"):
         try:
             if api_name == "ps4000":
                 # Attempt via Python wrapper first
@@ -151,7 +151,7 @@ def detect_picoscope() -> tuple[Optional[PicoDeviceInfo], str]:
                     except Exception as ex2:
                         diagnostics.append(f"ps4000 DLL load failed: {ex2}")
                         continue
-            else:
+            elif api_name == "ps4000a":
                 from picosdk.ps4000a import ps4000a as ps
                 chandle = c_int16()
                 status = ps.ps4000aOpenUnit(byref(chandle), None)
@@ -164,6 +164,19 @@ def detect_picoscope() -> tuple[Optional[PicoDeviceInfo], str]:
                 model = buffer.value.decode(errors="ignore")
                 ps.ps4000aCloseUnit(chandle)
                 return PicoDeviceInfo(api="ps4000a", model=model), ""
+            elif api_name == "ps6000a":
+                from picosdk.ps6000a import ps6000a as ps
+                chandle = c_int16()
+                status = ps.ps6000aOpenUnit(byref(chandle), None, 1)
+                if status != 0:
+                    diagnostics.append(f"ps6000aOpenUnit status={status}")
+                    continue
+                buffer = create_string_buffer(256)
+                required_len = c_int16()
+                ps.ps6000aGetUnitInfo(chandle, buffer, c_int16(len(buffer)), byref(required_len), 3)
+                model = buffer.value.decode(errors="ignore")
+                ps.ps6000aCloseUnit(chandle)
+                return PicoDeviceInfo(api="ps6000a", model=model), ""
         except Exception as ex:
             diagnostics.append(f"{api_name} import/open failed: {ex}")
             continue
