@@ -57,26 +57,77 @@ REM Create installation directory
 echo Creating installation directory...
 if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"
 
-REM Copy application files (assuming they're in the same directory as this installer)
+REM Copy application files (check current directory and parent directory)
 echo Copying application files...
 if exist "app" (
+    echo Found app directory in current location
     xcopy /E /I /Y "app" "%INSTALL_DIR%\app"
+) else if exist "..\app" (
+    echo Found app directory in parent location
+    xcopy /E /I /Y "..\app" "%INSTALL_DIR%\app"
 ) else (
     echo ERROR: Application files not found!
-    echo Please ensure this installer is in the same directory as the Flash Data Logger files.
+    echo.
+    echo The installer is looking for the 'app' directory in:
+    echo - Current directory: %CD%
+    echo - Parent directory: %CD%\..
+    echo.
+    echo Please ensure this installer is run from the correct location:
+    echo - Either from the root Flash Data Logger directory
+    echo - Or from the FlashDataLogger_v0.9_Simple directory
+    echo.
     pause
     exit /b 1
 )
 
-if exist "scripts" xcopy /E /I /Y "scripts" "%INSTALL_DIR%\scripts"
-if exist "requirements.txt" copy /Y "requirements.txt" "%INSTALL_DIR%\"
-if exist "setup.py" copy /Y "setup.py" "%INSTALL_DIR%\"
-if exist "pyproject.toml" copy /Y "pyproject.toml" "%INSTALL_DIR%\"
-if exist "MANIFEST.in" copy /Y "MANIFEST.in" "%INSTALL_DIR%\"
-if exist "LICENSE" copy /Y "LICENSE" "%INSTALL_DIR%\"
-if exist "README.md" copy /Y "README.md" "%INSTALL_DIR%\"
-if exist "PREREQUISITES.md" copy /Y "PREREQUISITES.md" "%INSTALL_DIR%\"
-if exist "INSTALLATION_GUIDE.md" copy /Y "INSTALLATION_GUIDE.md" "%INSTALL_DIR%\"
+REM Copy other files (check both current and parent directory)
+if exist "scripts" (
+    xcopy /E /I /Y "scripts" "%INSTALL_DIR%\scripts"
+) else if exist "..\scripts" (
+    xcopy /E /I /Y "..\scripts" "%INSTALL_DIR%\scripts"
+)
+
+if exist "requirements.txt" (
+    copy /Y "requirements.txt" "%INSTALL_DIR%\"
+) else if exist "..\requirements.txt" (
+    copy /Y "..\requirements.txt" "%INSTALL_DIR%\"
+)
+
+if exist "setup.py" (
+    copy /Y "setup.py" "%INSTALL_DIR%\"
+) else if exist "..\setup.py" (
+    copy /Y "..\setup.py" "%INSTALL_DIR%\"
+)
+
+if exist "pyproject.toml" (
+    copy /Y "pyproject.toml" "%INSTALL_DIR%\"
+) else if exist "..\pyproject.toml" (
+    copy /Y "..\pyproject.toml" "%INSTALL_DIR%\"
+)
+
+if exist "MANIFEST.in" (
+    copy /Y "MANIFEST.in" "%INSTALL_DIR%\"
+) else if exist "..\MANIFEST.in" (
+    copy /Y "..\MANIFEST.in" "%INSTALL_DIR%\"
+)
+
+if exist "LICENSE" (
+    copy /Y "LICENSE" "%INSTALL_DIR%\"
+) else if exist "..\LICENSE" (
+    copy /Y "..\LICENSE" "%INSTALL_DIR%\"
+)
+
+if exist "README.md" (
+    copy /Y "README.md" "%INSTALL_DIR%\"
+) else if exist "..\README.md" (
+    copy /Y "..\README.md" "%INSTALL_DIR%\"
+)
+
+if exist "PREREQUISITES.md" (
+    copy /Y "PREREQUISITES.md" "%INSTALL_DIR%\"
+) else if exist "..\PREREQUISITES.md" (
+    copy /Y "..\PREREQUISITES.md" "%INSTALL_DIR%\"
+)
 
 echo Application files copied successfully.
 echo.
