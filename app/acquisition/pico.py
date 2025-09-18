@@ -110,7 +110,8 @@ def detect_picoscope() -> tuple[Optional[PicoDeviceInfo], str]:
                     if status == 0:
                         buffer = create_string_buffer(256)
                         required_len = c_int16()
-                        ps.ps4000GetUnitInfo(chandle, byref(buffer), c_int16(len(buffer)), byref(required_len), 3)
+                        # For the Python wrapper, pass the buffer directly (not byref)
+                        ps.ps4000GetUnitInfo(chandle, buffer, c_int16(len(buffer)), byref(required_len), 3)
                         model = buffer.value.decode(errors="ignore")
                         ps.ps4000CloseUnit(chandle)
                         return PicoDeviceInfo(api="ps4000", model=model), ""
@@ -160,7 +161,8 @@ def detect_picoscope() -> tuple[Optional[PicoDeviceInfo], str]:
                     continue
                 buffer = create_string_buffer(256)
                 required_len = c_int16()
-                ps.ps4000aGetUnitInfo(chandle, byref(buffer), c_int16(len(buffer)), byref(required_len), 3)
+                # For the Python wrapper, pass the buffer directly (not byref)
+                ps.ps4000aGetUnitInfo(chandle, buffer, c_int16(len(buffer)), byref(required_len), 3)
                 model = buffer.value.decode(errors="ignore")
                 ps.ps4000aCloseUnit(chandle)
                 return PicoDeviceInfo(api="ps4000a", model=model), ""
