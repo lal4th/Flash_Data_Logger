@@ -610,6 +610,13 @@ class PlotPanel(QtWidgets.QWidget):
         # Data storage for plotting
         self._data_buffer = []
         self._time_buffer = []
+        
+        # Plot update optimization
+        self._last_plot_update = 0
+        self._plot_update_interval = 0.05  # Update plot at most every 50ms (20 Hz)
+        
+        # Initialize with empty data to prevent (0,0) line artifacts
+        self.curve.setData([], [])
 
     def update_data(self, timestamp: float, value: float) -> None:
         """Update the plot with new data point."""
@@ -623,38 +630,46 @@ class PlotPanel(QtWidgets.QWidget):
         self._time_buffer.append(timestamp)
         self._data_buffer.append(value)
         
-        # Dynamic buffer sizing based on timeline and sample rate
+        # Calculate proper buffer size based on timeline and sample rate
         main = self.window()
         if isinstance(main, MainWindow):
             timeline = main.spinbox_timeline.value()
             sample_rate = main.combo_samplerate.currentText().replace(' Hz', '')
             try:
                 sample_rate_hz = float(sample_rate)
-                # Calculate buffer size: timeline * sample_rate * 1.5 (50% extra for smooth scrolling)
-                buffer_size = int(timeline * sample_rate_hz * 1.5)
-                buffer_size = max(1000, min(buffer_size, 100000))  # Min 1000, max 100k points
+                # Calculate buffer size: timeline * sample_rate * 2.0 (100% extra for data retention)
+                # This ensures we keep data for the entire session until Reset
+                buffer_size = int(timeline * sample_rate_hz * 2.0)
+                buffer_size = max(5000, min(buffer_size, 500000))  # Min 5k, max 500k points
             except (ValueError, AttributeError):
-                buffer_size = 1000  # Fallback
+                buffer_size = 10000  # Fallback
         else:
-            buffer_size = 1000  # Fallback
+            buffer_size = 10000  # Fallback
         
-        # Keep only the last buffer_size points for performance
-        if len(self._time_buffer) > buffer_size:
-            self._time_buffer = self._time_buffer[-buffer_size:]
-            self._data_buffer = self._data_buffer[-buffer_size:]
+        # Only trim if we exceed the buffer size significantly
+        # This prevents data loss during normal operation
+        if len(self._time_buffer) > buffer_size * 1.2:  # Only trim when 20% over limit
+            excess = len(self._time_buffer) - buffer_size
+            self._time_buffer = self._time_buffer[excess:]
+            self._data_buffer = self._data_buffer[excess:]
         
-        # Update the plot
+        # Update the plot (with frequency limiting for performance)
         if self._time_buffer and self._data_buffer:
-            # Check if curve still exists before updating
-            try:
-                self.curve.setData(self._time_buffer, self._data_buffer)
-            except RuntimeError as e:
-                if "wrapped C/C++ object" in str(e):
-                    # Curve was deleted, recreate it
-                    self.curve = self.plot.plot(pen=pg.mkPen(color=self.config.color, width=2))
+            import time
+            current_time = time.time()
+            if current_time - self._last_plot_update >= self._plot_update_interval:
+                # Check if curve still exists before updating
+                try:
                     self.curve.setData(self._time_buffer, self._data_buffer)
-                else:
-                    raise
+                    self._last_plot_update = current_time
+                except RuntimeError as e:
+                    if "wrapped C/C++ object" in str(e):
+                        # Curve was deleted, recreate it
+                        self.curve = self.plot.plot(pen=pg.mkPen(color=self.config.color, width=2))
+                        self.curve.setData(self._time_buffer, self._data_buffer)
+                        self._last_plot_update = current_time
+                    else:
+                        raise
             
             # Scroll X range
             if self._time_buffer:
@@ -701,39 +716,46 @@ class PlotPanel(QtWidgets.QWidget):
         self._time_buffer.extend(time_axis.tolist())
         self._data_buffer.extend(data_array.tolist())
         
-        # Dynamic buffer sizing based on timeline and sample rate
+        # Calculate proper buffer size based on timeline and sample rate
         main = self.window()
         if isinstance(main, MainWindow):
             timeline = main.spinbox_timeline.value()
             sample_rate = main.combo_samplerate.currentText().replace(' Hz', '')
             try:
                 sample_rate_hz = float(sample_rate)
-                # Calculate buffer size: timeline * sample_rate * 1.5 (50% extra for smooth scrolling)
-                buffer_size = int(timeline * sample_rate_hz * 1.5)
-                buffer_size = max(1000, min(buffer_size, 100000))  # Min 1000, max 100k points
+                # Calculate buffer size: timeline * sample_rate * 2.0 (100% extra for data retention)
+                # This ensures we keep data for the entire session until Reset
+                buffer_size = int(timeline * sample_rate_hz * 2.0)
+                buffer_size = max(5000, min(buffer_size, 500000))  # Min 5k, max 500k points
             except (ValueError, AttributeError):
-                buffer_size = 1000  # Fallback
+                buffer_size = 10000  # Fallback
         else:
-            buffer_size = 1000  # Fallback
+            buffer_size = 10000  # Fallback
         
-        # Keep only the last buffer_size points for performance
-        if len(self._time_buffer) > buffer_size:
+        # Only trim if we exceed the buffer size significantly
+        # This prevents data loss during normal operation
+        if len(self._time_buffer) > buffer_size * 1.2:  # Only trim when 20% over limit
             excess = len(self._time_buffer) - buffer_size
             self._time_buffer = self._time_buffer[excess:]
             self._data_buffer = self._data_buffer[excess:]
         
-        # Update the plot
+        # Update the plot (with frequency limiting for performance)
         if self._time_buffer and self._data_buffer:
-            # Check if curve still exists before updating
-            try:
-                self.curve.setData(self._time_buffer, self._data_buffer)
-            except RuntimeError as e:
-                if "wrapped C/C++ object" in str(e):
-                    # Curve was deleted, recreate it
-                    self.curve = self.plot.plot(pen=pg.mkPen(color=self.config.color, width=2))
+            import time
+            current_time = time.time()
+            if current_time - self._last_plot_update >= self._plot_update_interval:
+                # Check if curve still exists before updating
+                try:
                     self.curve.setData(self._time_buffer, self._data_buffer)
-                else:
-                    raise
+                    self._last_plot_update = current_time
+                except RuntimeError as e:
+                    if "wrapped C/C++ object" in str(e):
+                        # Curve was deleted, recreate it
+                        self.curve = self.plot.plot(pen=pg.mkPen(color=self.config.color, width=2))
+                        self.curve.setData(self._time_buffer, self._data_buffer)
+                        self._last_plot_update = current_time
+                    else:
+                        raise
             
             # Scroll X range
             if self._time_buffer:
@@ -862,6 +884,9 @@ class PlotPanel(QtWidgets.QWidget):
         # Clear data buffers
         self._time_buffer.clear()
         self._data_buffer.clear()
+        
+        # Reset plot update timer
+        self._last_plot_update = 0
         
         try:
             self.curve.setData([], [])

@@ -995,10 +995,17 @@ class StreamingController(QtCore.QObject):
             basic_data = [(d[0], d[1], d[2]) for d in block_data]
             self._ram_buffer.extend(basic_data)
             
-            # Limit RAM buffer size
-            max_samples = int(self._config.ram_buffer_size_mb * 1024 * 1024 / 24)  # ~24 bytes per sample (timestamp + 2 channels)
-            if len(self._ram_buffer) > max_samples:
-                # Remove oldest data
+            # Calculate proper RAM buffer size based on timeline and sample rate
+            timeline = self._config.timeline_seconds
+            sample_rate = self._config.sample_rate_hz
+            # Calculate buffer size: timeline * sample_rate * 2.0 (100% extra for data retention)
+            # This ensures we keep data for the entire session until Reset
+            max_samples = int(timeline * sample_rate * 2.0)
+            max_samples = max(10000, min(max_samples, 500000))  # Min 10k, max 500k points
+            
+            # Only trim if we exceed the buffer size significantly
+            # This prevents data loss during normal operation
+            if len(self._ram_buffer) > max_samples * 1.2:  # Only trim when 20% over limit
                 excess = len(self._ram_buffer) - max_samples
                 self._ram_buffer = self._ram_buffer[excess:]
 
@@ -1165,12 +1172,18 @@ class StreamingController(QtCore.QObject):
                     self._accumulated_plot_data_g.extend(all_channel_g_values)
                     self._accumulated_plot_data_h.extend(all_channel_h_values)
                 
-                # Limit accumulated data to timeline + buffer
-                # Use a fixed calculation based on timeline, not sample rate
-                # This ensures plot behavior is independent of sample rate
-                # Use a reasonable fixed limit based on timeline duration
-                max_samples = int(100000)  # Fixed limit: ~100k samples should be enough for any timeline
-                if len(self._accumulated_plot_data_a) > max_samples:
+                # Limit accumulated data to prevent memory growth
+                # Calculate proper buffer size based on timeline and sample rate
+                timeline = self._config.timeline_seconds
+                sample_rate = self._config.sample_rate_hz
+                # Calculate buffer size: timeline * sample_rate * 2.0 (100% extra for data retention)
+                # This ensures we keep data for the entire session until Reset
+                max_samples = int(timeline * sample_rate * 2.0)
+                max_samples = max(10000, min(max_samples, 500000))  # Min 10k, max 500k points
+                
+                # Only trim if we exceed the buffer size significantly
+                # This prevents data loss during normal operation
+                if len(self._accumulated_plot_data_a) > max_samples * 1.2:  # Only trim when 20% over limit
                     excess = len(self._accumulated_plot_data_a) - max_samples
                     self._accumulated_plot_data_a = self._accumulated_plot_data_a[excess:]
                     self._accumulated_plot_data_b = self._accumulated_plot_data_b[excess:]
