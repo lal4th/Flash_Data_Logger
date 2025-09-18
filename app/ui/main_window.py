@@ -350,24 +350,40 @@ class MainWindow(QtWidgets.QMainWindow):
 
     @QtCore.pyqtSlot(object)
     def _on_plot_data(self, payload: object) -> None:
-        # Handle both single-channel and multi-channel data
-        if isinstance(payload, tuple) and len(payload) == 3:
-            # Multi-channel data: (data_a, data_b, time_axis)
+        # Handle single-channel, dual-channel, and extended multi-channel data
+        if isinstance(payload, tuple) and len(payload) == 9:
+            # Extended multi-channel data: (data_a, data_b, data_c, data_d, data_e, data_f, data_g, data_h, time_axis)
+            data_a, data_b, data_c, data_d, data_e, data_f, data_g, data_h, time_axis = payload
+        elif isinstance(payload, tuple) and len(payload) == 3:
+            # Dual-channel data: (data_a, data_b, time_axis)
             data_a, data_b, time_axis = payload
+            data_c = data_d = data_e = data_f = data_g = data_h = np.array([], dtype=float)
         elif isinstance(payload, tuple) and len(payload) == 2:
             # Single-channel data: (data, time_axis)
             data_a, time_axis = payload
-            data_b = np.array([], dtype=float)
+            data_b = data_c = data_d = data_e = data_f = data_g = data_h = np.array([], dtype=float)
         else:
             # Fallback for unexpected format
             return
         
-        # Update panels
+        # Update panels - use efficient array-based updates
         for _r, _c, panel in self._plot_panels:
             if panel.channel == 'A' and data_a.size > 0:
-                panel.update_data(time_axis, data_a)
+                panel.update_data_array(time_axis, data_a)
             elif panel.channel == 'B' and isinstance(data_b, np.ndarray) and data_b.size > 0:
-                panel.update_data(time_axis, data_b)
+                panel.update_data_array(time_axis, data_b)
+            elif panel.channel == 'C' and isinstance(data_c, np.ndarray) and data_c.size > 0:
+                panel.update_data_array(time_axis, data_c)
+            elif panel.channel == 'D' and isinstance(data_d, np.ndarray) and data_d.size > 0:
+                panel.update_data_array(time_axis, data_d)
+            elif panel.channel == 'E' and isinstance(data_e, np.ndarray) and data_e.size > 0:
+                panel.update_data_array(time_axis, data_e)
+            elif panel.channel == 'F' and isinstance(data_f, np.ndarray) and data_f.size > 0:
+                panel.update_data_array(time_axis, data_f)
+            elif panel.channel == 'G' and isinstance(data_g, np.ndarray) and data_g.size > 0:
+                panel.update_data_array(time_axis, data_g)
+            elif panel.channel == 'H' and isinstance(data_h, np.ndarray) and data_h.size > 0:
+                panel.update_data_array(time_axis, data_h)
             elif panel.channel == 'MATH':
                 # Math channels will be computed later
                 pass
@@ -419,6 +435,29 @@ class MainWindow(QtWidgets.QMainWindow):
                 QtWidgets.QMessageBox.warning(self, "Invalid Formula", 
                     f"Failed to add math channel '{cfg.title}': Invalid formula '{cfg.formula}'")
                 return
+        
+        # For physical channels, enable them in the streaming controller
+        elif cfg.channel in ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']:
+            # Enable the channel in the controller
+            coupling = 1 if cfg.coupling == 0 else 0  # Convert UI coupling to controller coupling
+            voltage_range = cfg.voltage_range
+            
+            if cfg.channel == 'A':
+                self.controller.set_channel_a_config(True, coupling, voltage_range)
+            elif cfg.channel == 'B':
+                self.controller.set_channel_b_config(True, coupling, voltage_range)
+            elif cfg.channel == 'C':
+                self.controller.set_channel_c_config(True, coupling, voltage_range)
+            elif cfg.channel == 'D':
+                self.controller.set_channel_d_config(True, coupling, voltage_range)
+            elif cfg.channel == 'E':
+                self.controller.set_channel_e_config(True, coupling, voltage_range)
+            elif cfg.channel == 'F':
+                self.controller.set_channel_f_config(True, coupling, voltage_range)
+            elif cfg.channel == 'G':
+                self.controller.set_channel_g_config(True, coupling, voltage_range)
+            elif cfg.channel == 'H':
+                self.controller.set_channel_h_config(True, coupling, voltage_range)
         
         # Determine grid size based on number of plots
         num_plots = len(self._plot_panels)
@@ -603,6 +642,85 @@ class PlotPanel(QtWidgets.QWidget):
         if len(self._time_buffer) > buffer_size:
             self._time_buffer = self._time_buffer[-buffer_size:]
             self._data_buffer = self._data_buffer[-buffer_size:]
+        
+        # Update the plot
+        if self._time_buffer and self._data_buffer:
+            # Check if curve still exists before updating
+            try:
+                self.curve.setData(self._time_buffer, self._data_buffer)
+            except RuntimeError as e:
+                if "wrapped C/C++ object" in str(e):
+                    # Curve was deleted, recreate it
+                    self.curve = self.plot.plot(pen=pg.mkPen(color=self.config.color, width=2))
+                    self.curve.setData(self._time_buffer, self._data_buffer)
+                else:
+                    raise
+            
+            # Scroll X range
+            if self._time_buffer:
+                max_time = float(self._time_buffer[-1])
+                min_time = float(self._time_buffer[0])
+                # Use global timeline from main window if available
+                main = self.window()
+                if isinstance(main, MainWindow):
+                    timeline = main.spinbox_timeline.value()
+                else:
+                    timeline = 10.0  # Default timeline
+                
+                # Always follow the data with a rolling window
+                if max_time <= timeline:
+                    # If we haven't reached the timeline yet, show from 0 to current max
+                    self.plot.setXRange(0, max(timeline, max_time), padding=0)
+                else:
+                    # Rolling window: show the last 'timeline' seconds of data
+                    self.plot.setXRange(max_time - timeline, max_time, padding=0)
+                self.plot.setYRange(self.config.y_min, self.config.y_max, padding=0)
+            
+            # Update mirror window if it exists
+            if hasattr(self, '_mirror_curve') and self._mirror_curve is not None:
+                try:
+                    self._mirror_curve.setData(self._time_buffer, self._data_buffer)
+                    # Sync X range with main plot
+                    if hasattr(self, '_mirror_plot') and self._mirror_plot is not None:
+                        x_range = self.plot.getAxis('bottom').range
+                        self._mirror_plot.setXRange(x_range[0], x_range[1], padding=0)
+                except RuntimeError:
+                    # Mirror curve was deleted, clear the reference
+                    self._mirror_curve = None
+
+    def update_data_array(self, time_axis: np.ndarray, data_array: np.ndarray) -> None:
+        """Update the plot with an array of data points efficiently."""
+        # Ensure we have valid numeric arrays
+        try:
+            time_axis = np.array(time_axis, dtype=float)
+            data_array = np.array(data_array, dtype=float)
+        except (ValueError, TypeError):
+            return  # Skip invalid data
+        
+        # Add new data to buffers
+        self._time_buffer.extend(time_axis.tolist())
+        self._data_buffer.extend(data_array.tolist())
+        
+        # Dynamic buffer sizing based on timeline and sample rate
+        main = self.window()
+        if isinstance(main, MainWindow):
+            timeline = main.spinbox_timeline.value()
+            sample_rate = main.combo_samplerate.currentText().replace(' Hz', '')
+            try:
+                sample_rate_hz = float(sample_rate)
+                # Calculate buffer size: timeline * sample_rate * 1.5 (50% extra for smooth scrolling)
+                buffer_size = int(timeline * sample_rate_hz * 1.5)
+                buffer_size = max(1000, min(buffer_size, 100000))  # Min 1000, max 100k points
+            except (ValueError, AttributeError):
+                buffer_size = 1000  # Fallback
+        else:
+            buffer_size = 1000  # Fallback
+        
+        # Keep only the last buffer_size points for performance
+        if len(self._time_buffer) > buffer_size:
+            excess = len(self._time_buffer) - buffer_size
+            self._time_buffer = self._time_buffer[excess:]
+            self._data_buffer = self._data_buffer[excess:]
         
         # Update the plot
         if self._time_buffer and self._data_buffer:

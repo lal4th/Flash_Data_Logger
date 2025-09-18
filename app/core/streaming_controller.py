@@ -54,6 +54,31 @@ class StreamingConfig:
     channel_b_coupling: int = 1
     channel_b_range: int = 8
     channel_b_offset: float = 0.0
+    # v1.0 Extended multi-channel settings for 6824E (channels C-H)
+    channel_c_enabled: bool = False
+    channel_c_coupling: int = 1
+    channel_c_range: int = 8
+    channel_c_offset: float = 0.0
+    channel_d_enabled: bool = False
+    channel_d_coupling: int = 1
+    channel_d_range: int = 8
+    channel_d_offset: float = 0.0
+    channel_e_enabled: bool = False
+    channel_e_coupling: int = 1
+    channel_e_range: int = 8
+    channel_e_offset: float = 0.0
+    channel_f_enabled: bool = False
+    channel_f_coupling: int = 1
+    channel_f_range: int = 8
+    channel_f_offset: float = 0.0
+    channel_g_enabled: bool = False
+    channel_g_coupling: int = 1
+    channel_g_range: int = 8
+    channel_g_offset: float = 0.0
+    channel_h_enabled: bool = False
+    channel_h_coupling: int = 1
+    channel_h_range: int = 8
+    channel_h_offset: float = 0.0
     # v0.9 Math channel settings
     math_channels: dict = None  # Will store math channel configurations
 
@@ -106,8 +131,33 @@ class StreamingController(QtCore.QObject):
         self._multi_channel_data: List[Tuple[float, float, float]] = []  # (timestamp, channel_a, channel_b)
         self._multi_channel_lock = threading.Lock()
         
+        # v1.0 Extended multi-channel data structures for 6824E (channels A-H)
+        self._extended_multi_channel_data: List[Tuple[float, float, float, float, float, float, float, float, float]] = []  # (timestamp, channel_a, channel_b, channel_c, channel_d, channel_e, channel_f, channel_g, channel_h)
+        self._extended_multi_channel_lock = threading.Lock()
+        
         # v0.9 Math channel results storage
         self._math_results: Dict[str, float] = {}
+
+    def _get_enabled_channels(self) -> List[str]:
+        """Get list of currently enabled channels."""
+        enabled = []
+        if self._config.channel_a_enabled:
+            enabled.append('A')
+        if self._config.channel_b_enabled:
+            enabled.append('B')
+        if self._config.channel_c_enabled:
+            enabled.append('C')
+        if self._config.channel_d_enabled:
+            enabled.append('D')
+        if self._config.channel_e_enabled:
+            enabled.append('E')
+        if self._config.channel_f_enabled:
+            enabled.append('F')
+        if self._config.channel_g_enabled:
+            enabled.append('G')
+        if self._config.channel_h_enabled:
+            enabled.append('H')
+        return enabled
 
     # ----- Config setters -----
     def set_sample_rate(self, hz: int) -> None:
@@ -184,6 +234,55 @@ class StreamingController(QtCore.QObject):
         self._config.channel_b_range = voltage_range
         self._config.channel_b_offset = offset
         self.signal_status.emit(f"Channel B: {'ON' if enabled else 'OFF'}, Range: {voltage_range}, Coupling: {'DC' if coupling else 'AC'}")
+
+    # v1.0 Extended multi-channel configuration methods for 6824E (channels C-H)
+    def set_channel_c_config(self, enabled: bool, coupling: int, voltage_range: int, offset: float = 0.0) -> None:
+        """Configure Channel C settings."""
+        self._config.channel_c_enabled = enabled
+        self._config.channel_c_coupling = coupling
+        self._config.channel_c_range = voltage_range
+        self._config.channel_c_offset = offset
+        self.signal_status.emit(f"Channel C: {'ON' if enabled else 'OFF'}, Range: {voltage_range}, Coupling: {'DC' if coupling else 'AC'}")
+
+    def set_channel_d_config(self, enabled: bool, coupling: int, voltage_range: int, offset: float = 0.0) -> None:
+        """Configure Channel D settings."""
+        self._config.channel_d_enabled = enabled
+        self._config.channel_d_coupling = coupling
+        self._config.channel_d_range = voltage_range
+        self._config.channel_d_offset = offset
+        self.signal_status.emit(f"Channel D: {'ON' if enabled else 'OFF'}, Range: {voltage_range}, Coupling: {'DC' if coupling else 'AC'}")
+
+    def set_channel_e_config(self, enabled: bool, coupling: int, voltage_range: int, offset: float = 0.0) -> None:
+        """Configure Channel E settings."""
+        self._config.channel_e_enabled = enabled
+        self._config.channel_e_coupling = coupling
+        self._config.channel_e_range = voltage_range
+        self._config.channel_e_offset = offset
+        self.signal_status.emit(f"Channel E: {'ON' if enabled else 'OFF'}, Range: {voltage_range}, Coupling: {'DC' if coupling else 'AC'}")
+
+    def set_channel_f_config(self, enabled: bool, coupling: int, voltage_range: int, offset: float = 0.0) -> None:
+        """Configure Channel F settings."""
+        self._config.channel_f_enabled = enabled
+        self._config.channel_f_coupling = coupling
+        self._config.channel_f_range = voltage_range
+        self._config.channel_f_offset = offset
+        self.signal_status.emit(f"Channel F: {'ON' if enabled else 'OFF'}, Range: {voltage_range}, Coupling: {'DC' if coupling else 'AC'}")
+
+    def set_channel_g_config(self, enabled: bool, coupling: int, voltage_range: int, offset: float = 0.0) -> None:
+        """Configure Channel G settings."""
+        self._config.channel_g_enabled = enabled
+        self._config.channel_g_coupling = coupling
+        self._config.channel_g_range = voltage_range
+        self._config.channel_g_offset = offset
+        self.signal_status.emit(f"Channel G: {'ON' if enabled else 'OFF'}, Range: {voltage_range}, Coupling: {'DC' if coupling else 'AC'}")
+
+    def set_channel_h_config(self, enabled: bool, coupling: int, voltage_range: int, offset: float = 0.0) -> None:
+        """Configure Channel H settings."""
+        self._config.channel_h_enabled = enabled
+        self._config.channel_h_coupling = coupling
+        self._config.channel_h_range = voltage_range
+        self._config.channel_h_offset = offset
+        self.signal_status.emit(f"Channel H: {'ON' if enabled else 'OFF'}, Range: {voltage_range}, Coupling: {'DC' if coupling else 'AC'}")
 
     def get_multi_channel_config(self) -> dict:
         """Get current multi-channel configuration."""
@@ -440,10 +539,16 @@ class StreamingController(QtCore.QObject):
         # Clear accumulated plot data
         self._accumulated_plot_data_a = []
         self._accumulated_plot_data_b = []
+        self._accumulated_plot_data_c = []
+        self._accumulated_plot_data_d = []
+        self._accumulated_plot_data_e = []
+        self._accumulated_plot_data_f = []
+        self._accumulated_plot_data_g = []
+        self._accumulated_plot_data_h = []
         self._accumulated_plot_timestamps = []
         
-        # Reset data source counters for fresh session
-        self.reset_data()
+        # Clear data for fresh session (without stopping acquisition)
+        self._clear_data_for_new_session()
         
         # Setup data source - this will raise an exception if PicoScope is not available
         try:
@@ -499,6 +604,35 @@ class StreamingController(QtCore.QObject):
         
         self.signal_status.emit("Stopped")
 
+    def _clear_data_for_new_session(self) -> None:
+        """Clear data for a new session without stopping acquisition."""
+        # Clear all data storage
+        with self._ram_buffer_lock:
+            self._ram_buffer.clear()
+        
+        # Clear accumulated plot data
+        self._accumulated_plot_data_a = []
+        self._accumulated_plot_data_b = []
+        self._accumulated_plot_data_c = []
+        self._accumulated_plot_data_d = []
+        self._accumulated_plot_data_e = []
+        self._accumulated_plot_data_f = []
+        self._accumulated_plot_data_g = []
+        self._accumulated_plot_data_h = []
+        self._accumulated_plot_timestamps = []
+        
+        # Clear all queues
+        while not self._data_queue.empty():
+            try:
+                self._data_queue.get_nowait()
+            except:
+                break
+        while not self._plot_queue.empty():
+            try:
+                self._plot_queue.get_nowait()
+            except:
+                break
+
     def reset_data(self) -> None:
         """Comprehensive reset that clears all data and saves current session."""
         # Stop any running acquisition first
@@ -521,26 +655,8 @@ class StreamingController(QtCore.QObject):
             except Exception as e:
                 self.signal_status.emit(f"Warning: Could not save session: {e}")
         
-        # Clear all data storage
-        with self._ram_buffer_lock:
-            self._ram_buffer.clear()
-        
-        # Clear accumulated plot data
-        self._accumulated_plot_data_a = []
-        self._accumulated_plot_data_b = []
-        self._accumulated_plot_timestamps = []
-        
-        # Clear all queues
-        while not self._data_queue.empty():
-            try:
-                self._data_queue.get_nowait()
-            except:
-                break
-        while not self._plot_queue.empty():
-            try:
-                self._plot_queue.get_nowait()
-            except:
-                break
+        # Clear all data using the new method
+        self._clear_data_for_new_session()
         while not self._csv_queue.empty():
             try:
                 self._csv_queue.get_nowait()
@@ -551,7 +667,7 @@ class StreamingController(QtCore.QObject):
         self._samples_acquired = 0
         self._samples_processed = 0
         self._samples_saved = 0
-        self._session_start_time = None
+        # Note: _session_start_time is NOT reset here - it should be preserved during start()
         
         # Reset the persistent PicoDirectSource if it exists
         if self._pico_source is not None:
@@ -659,6 +775,31 @@ class StreamingController(QtCore.QObject):
                         channel_b_coupling=self._config.channel_b_coupling,
                         channel_b_range=self._config.channel_b_range,
                         channel_b_offset=self._config.channel_b_offset,
+                        # v1.0 Extended multi-channel support for 6824E (channels C-H)
+                        channel_c_enabled=self._config.channel_c_enabled,
+                        channel_c_coupling=self._config.channel_c_coupling,
+                        channel_c_range=self._config.channel_c_range,
+                        channel_c_offset=self._config.channel_c_offset,
+                        channel_d_enabled=self._config.channel_d_enabled,
+                        channel_d_coupling=self._config.channel_d_coupling,
+                        channel_d_range=self._config.channel_d_range,
+                        channel_d_offset=self._config.channel_d_offset,
+                        channel_e_enabled=self._config.channel_e_enabled,
+                        channel_e_coupling=self._config.channel_e_coupling,
+                        channel_e_range=self._config.channel_e_range,
+                        channel_e_offset=self._config.channel_e_offset,
+                        channel_f_enabled=self._config.channel_f_enabled,
+                        channel_f_coupling=self._config.channel_f_coupling,
+                        channel_f_range=self._config.channel_f_range,
+                        channel_f_offset=self._config.channel_f_offset,
+                        channel_g_enabled=self._config.channel_g_enabled,
+                        channel_g_coupling=self._config.channel_g_coupling,
+                        channel_g_range=self._config.channel_g_range,
+                        channel_g_offset=self._config.channel_g_offset,
+                        channel_h_enabled=self._config.channel_h_enabled,
+                        channel_h_coupling=self._config.channel_h_coupling,
+                        channel_h_range=self._config.channel_h_range,
+                        channel_h_offset=self._config.channel_h_offset,
                         resolution_bits=self._config.resolution_bits,
                     )
                     return "Using Pico source (ps6000a) - 6824E multi-channel mode"
@@ -733,6 +874,10 @@ class StreamingController(QtCore.QObject):
             block_acquisition_rate_hz = 100.0  # Fixed acquisition rate
             samples_per_block = max(1, int(self._config.sample_rate_hz / block_acquisition_rate_hz))
             
+            # For low sample rates (≤100Hz), use larger blocks for better plot visibility
+            if self._config.sample_rate_hz <= 100:
+                samples_per_block = max(10, samples_per_block)  # Minimum 10 samples for visible curves
+            
             # Limit block size for responsiveness (max 50 samples per block)
             samples_per_block = min(samples_per_block, 50)
             
@@ -742,8 +887,18 @@ class StreamingController(QtCore.QObject):
                 
                 if self._config.multi_channel_mode:
                     # Multi-channel acquisition
-                    (channel_a_value, channel_b_value), timestamp = self._source.read_dual_channel()
-                    block_data.append((timestamp, channel_a_value, channel_b_value))
+                    # Check if we have more than 2 channels enabled (6824E multi-channel mode)
+                    enabled_channels = self._get_enabled_channels()
+                    if len(enabled_channels) > 2 and hasattr(self._source, 'read_multi_channel'):
+                        # Use multi-channel reading for 6824E (channels C-H)
+                        (channel_a_value, channel_b_value, channel_c_value, channel_d_value, 
+                         channel_e_value, channel_f_value, channel_g_value, channel_h_value), timestamp = self._source.read_multi_channel()
+                        block_data.append((timestamp, channel_a_value, channel_b_value, channel_c_value, channel_d_value, 
+                                          channel_e_value, channel_f_value, channel_g_value, channel_h_value))
+                    else:
+                        # Use dual-channel reading for 4262 or 6824E with only A/B enabled
+                        (channel_a_value, channel_b_value), timestamp = self._source.read_dual_channel()
+                        block_data.append((timestamp, channel_a_value, channel_b_value))
                 else:
                     # Single channel acquisition (v0.6 compatibility)
                     value, timestamp = self._source.read()
@@ -754,7 +909,7 @@ class StreamingController(QtCore.QObject):
         
         return block_data
 
-    def _process_block(self, block_data: List[Tuple[float, float, float]]) -> List[Tuple[float, float, float, Dict[str, float]]]:
+    def _process_block(self, block_data) -> List[Tuple[float, float, float, Dict[str, float]]]:
         """Process a block of multi-channel data including math channel calculations."""
         processed_data = []
         try:
@@ -762,33 +917,71 @@ class StreamingController(QtCore.QObject):
             channel_a_offset = self._channel_offsets.get(0, 0.0)
             channel_b_offset = self._channel_offsets.get(1, 0.0)
             
-            for timestamp, channel_a_value, channel_b_value in block_data:
-                # Convert absolute timestamp to relative time from session start
-                if self._session_start_time is not None:
-                    from datetime import datetime
-                    absolute_time = datetime.fromtimestamp(timestamp)
-                    relative_seconds = (absolute_time - self._session_start_time).total_seconds()
-                else:
-                    relative_seconds = timestamp  # Fallback to absolute time
-                
-                # Apply channel offsets: (raw voltage + offset)
-                offset_adjusted_a = channel_a_value + channel_a_offset
-                offset_adjusted_b = channel_b_value + channel_b_offset
-                
-                # For now, bypass processing pipeline to avoid voltage smoothing issues
-                # TODO: Implement proper multi-channel processing pipeline
-                processed_a = offset_adjusted_a
-                processed_b = offset_adjusted_b
-                
-                # Calculate math channel values
-                math_results = self._math_engine.update_channel_data(processed_a, processed_b)
-                
-                # Store the data structure with math channel results (relative_timestamp, channel_a, channel_b, math_results)
-                processed_data.append((relative_seconds, processed_a, processed_b, math_results))
-                
-                # Store math results separately for later use
-                self._math_results = math_results
-                self._samples_processed += 1
+            # Check if we have extended multi-channel data (8 channels) or standard dual-channel data (2 channels)
+            if block_data and len(block_data[0]) == 9:  # Extended multi-channel: (timestamp, a, b, c, d, e, f, g, h)
+                # Process extended multi-channel data
+                for timestamp, channel_a_value, channel_b_value, channel_c_value, channel_d_value, channel_e_value, channel_f_value, channel_g_value, channel_h_value in block_data:
+                    # Convert absolute timestamp to relative time from session start
+                    if self._session_start_time is not None:
+                        from datetime import datetime
+                        absolute_time = datetime.fromtimestamp(timestamp)
+                        relative_seconds = (absolute_time - self._session_start_time).total_seconds()
+                    else:
+                        relative_seconds = timestamp  # Fallback to absolute time
+                    
+                    # Apply channel offsets: (raw voltage + offset)
+                    offset_adjusted_a = channel_a_value + channel_a_offset
+                    offset_adjusted_b = channel_b_value + channel_b_offset
+                    
+                    # For now, bypass processing pipeline to avoid voltage smoothing issues
+                    # TODO: Implement proper multi-channel processing pipeline
+                    processed_a = offset_adjusted_a
+                    processed_b = offset_adjusted_b
+                    processed_c = channel_c_value  # No offset applied to C-H for now
+                    processed_d = channel_d_value
+                    processed_e = channel_e_value
+                    processed_f = channel_f_value
+                    processed_g = channel_g_value
+                    processed_h = channel_h_value
+                    
+                    # Calculate math channel values (using A and B for now)
+                    math_results = self._math_engine.update_channel_data(processed_a, processed_b)
+                    
+                    # Store the data structure with math channel results (relative_timestamp, channel_a, channel_b, channel_c, channel_d, channel_e, channel_f, channel_g, channel_h, math_results)
+                    processed_data.append((relative_seconds, processed_a, processed_b, processed_c, processed_d, processed_e, processed_f, processed_g, processed_h, math_results))
+                    
+                    # Store math results separately for later use
+                    self._math_results = math_results
+                    self._samples_processed += 1
+            else:
+                # Process standard dual-channel data (2 channels)
+                for timestamp, channel_a_value, channel_b_value in block_data:
+                    # Convert absolute timestamp to relative time from session start
+                    if self._session_start_time is not None:
+                        from datetime import datetime
+                        absolute_time = datetime.fromtimestamp(timestamp)
+                        relative_seconds = (absolute_time - self._session_start_time).total_seconds()
+                    else:
+                        relative_seconds = timestamp  # Fallback to absolute time
+                    
+                    # Apply channel offsets: (raw voltage + offset)
+                    offset_adjusted_a = channel_a_value + channel_a_offset
+                    offset_adjusted_b = channel_b_value + channel_b_offset
+                    
+                    # For now, bypass processing pipeline to avoid voltage smoothing issues
+                    # TODO: Implement proper multi-channel processing pipeline
+                    processed_a = offset_adjusted_a
+                    processed_b = offset_adjusted_b
+                    
+                    # Calculate math channel values
+                    math_results = self._math_engine.update_channel_data(processed_a, processed_b)
+                    
+                    # Store the data structure with math channel results (relative_timestamp, channel_a, channel_b, math_results)
+                    processed_data.append((relative_seconds, processed_a, processed_b, math_results))
+                    
+                    # Store math results separately for later use
+                    self._math_results = math_results
+                    self._samples_processed += 1
         except Exception as e:
             self.signal_status.emit(f"Block processing error: {e}")
             return block_data  # Return unprocessed data if processing fails
@@ -809,7 +1002,7 @@ class StreamingController(QtCore.QObject):
                 excess = len(self._ram_buffer) - max_samples
                 self._ram_buffer = self._ram_buffer[excess:]
 
-    def _queue_plot_data(self, block_data: List[Tuple[float, float, float, Dict[str, float]]]) -> None:
+    def _queue_plot_data(self, block_data) -> None:
         """Queue block data for plot updates."""
         try:
             # Convert to numpy arrays for efficient plotting
@@ -817,8 +1010,22 @@ class StreamingController(QtCore.QObject):
             channel_a_values = np.array([d[1] for d in block_data], dtype=float)
             channel_b_values = np.array([d[2] for d in block_data], dtype=float)
             
-            # Non-blocking put - store both channels
-            self._plot_queue.put_nowait((channel_a_values, channel_b_values, timestamps))
+            # Check if we have extended multi-channel data (8 channels)
+            if block_data and len(block_data[0]) == 10:  # Extended multi-channel: (timestamp, a, b, c, d, e, f, g, h, math_results)
+                # Extract additional channels for extended multi-channel mode
+                channel_c_values = np.array([d[3] for d in block_data], dtype=float)
+                channel_d_values = np.array([d[4] for d in block_data], dtype=float)
+                channel_e_values = np.array([d[5] for d in block_data], dtype=float)
+                channel_f_values = np.array([d[6] for d in block_data], dtype=float)
+                channel_g_values = np.array([d[7] for d in block_data], dtype=float)
+                channel_h_values = np.array([d[8] for d in block_data], dtype=float)
+                
+                # Non-blocking put - store all 8 channels
+                self._plot_queue.put_nowait((channel_a_values, channel_b_values, channel_c_values, channel_d_values, 
+                                           channel_e_values, channel_f_values, channel_g_values, channel_h_values, timestamps))
+            else:
+                # Non-blocking put - store both channels (standard dual-channel mode)
+                self._plot_queue.put_nowait((channel_a_values, channel_b_values, timestamps))
         except queue.Full:
             # Plot queue is full, skip this update
             pass
@@ -900,14 +1107,35 @@ class StreamingController(QtCore.QObject):
             # Collect all available plot data
             all_channel_a_values = []
             all_channel_b_values = []
+            all_channel_c_values = []
+            all_channel_d_values = []
+            all_channel_e_values = []
+            all_channel_f_values = []
+            all_channel_g_values = []
+            all_channel_h_values = []
             all_timestamps = []
             
             while not self._plot_queue.empty():
                 try:
-                    channel_a_values, channel_b_values, timestamps = self._plot_queue.get_nowait()
-                    all_channel_a_values.extend(channel_a_values)
-                    all_channel_b_values.extend(channel_b_values)
-                    all_timestamps.extend(timestamps)
+                    payload = self._plot_queue.get_nowait()
+                    
+                    # Check if we have extended multi-channel data (9 elements) or standard dual-channel data (3 elements)
+                    if len(payload) == 9:  # Extended multi-channel: (a, b, c, d, e, f, g, h, timestamps)
+                        channel_a_values, channel_b_values, channel_c_values, channel_d_values, channel_e_values, channel_f_values, channel_g_values, channel_h_values, timestamps = payload
+                        all_channel_a_values.extend(channel_a_values)
+                        all_channel_b_values.extend(channel_b_values)
+                        all_channel_c_values.extend(channel_c_values)
+                        all_channel_d_values.extend(channel_d_values)
+                        all_channel_e_values.extend(channel_e_values)
+                        all_channel_f_values.extend(channel_f_values)
+                        all_channel_g_values.extend(channel_g_values)
+                        all_channel_h_values.extend(channel_h_values)
+                        all_timestamps.extend(timestamps)
+                    else:  # Standard dual-channel: (a, b, timestamps)
+                        channel_a_values, channel_b_values, timestamps = payload
+                        all_channel_a_values.extend(channel_a_values)
+                        all_channel_b_values.extend(channel_b_values)
+                        all_timestamps.extend(timestamps)
                 except queue.Empty:
                     break
             
@@ -916,11 +1144,26 @@ class StreamingController(QtCore.QObject):
                 if not hasattr(self, '_accumulated_plot_data_a'):
                     self._accumulated_plot_data_a = []
                     self._accumulated_plot_data_b = []
+                    self._accumulated_plot_data_c = []
+                    self._accumulated_plot_data_d = []
+                    self._accumulated_plot_data_e = []
+                    self._accumulated_plot_data_f = []
+                    self._accumulated_plot_data_g = []
+                    self._accumulated_plot_data_h = []
                     self._accumulated_plot_timestamps = []
                 
                 self._accumulated_plot_data_a.extend(all_channel_a_values)
                 self._accumulated_plot_data_b.extend(all_channel_b_values)
                 self._accumulated_plot_timestamps.extend(all_timestamps)
+                
+                # Add extended multi-channel data if available
+                if all_channel_c_values:
+                    self._accumulated_plot_data_c.extend(all_channel_c_values)
+                    self._accumulated_plot_data_d.extend(all_channel_d_values)
+                    self._accumulated_plot_data_e.extend(all_channel_e_values)
+                    self._accumulated_plot_data_f.extend(all_channel_f_values)
+                    self._accumulated_plot_data_g.extend(all_channel_g_values)
+                    self._accumulated_plot_data_h.extend(all_channel_h_values)
                 
                 # Limit accumulated data to timeline + buffer
                 # Use a fixed calculation based on timeline, not sample rate
@@ -932,14 +1175,33 @@ class StreamingController(QtCore.QObject):
                     self._accumulated_plot_data_a = self._accumulated_plot_data_a[excess:]
                     self._accumulated_plot_data_b = self._accumulated_plot_data_b[excess:]
                     self._accumulated_plot_timestamps = self._accumulated_plot_timestamps[excess:]
+                    
+                    # Limit extended multi-channel data if available
+                    if all_channel_c_values:
+                        self._accumulated_plot_data_c = self._accumulated_plot_data_c[excess:]
+                        self._accumulated_plot_data_d = self._accumulated_plot_data_d[excess:]
+                        self._accumulated_plot_data_e = self._accumulated_plot_data_e[excess:]
+                        self._accumulated_plot_data_f = self._accumulated_plot_data_f[excess:]
+                        self._accumulated_plot_data_g = self._accumulated_plot_data_g[excess:]
+                        self._accumulated_plot_data_h = self._accumulated_plot_data_h[excess:]
                 
                 # Convert to numpy arrays and emit based on mode
                 data_a = np.array(self._accumulated_plot_data_a, dtype=float)
                 data_b = np.array(self._accumulated_plot_data_b, dtype=float)
                 time_axis = np.array(self._accumulated_plot_timestamps, dtype=float)
                 
-                if self._config.multi_channel_mode:
-                    # Emit multi-channel plot data: (data_a, data_b, time_axis)
+                # Check if we have extended multi-channel data
+                if all_channel_c_values:
+                    # Emit extended multi-channel plot data: (data_a, data_b, data_c, data_d, data_e, data_f, data_g, data_h, time_axis)
+                    data_c = np.array(self._accumulated_plot_data_c, dtype=float)
+                    data_d = np.array(self._accumulated_plot_data_d, dtype=float)
+                    data_e = np.array(self._accumulated_plot_data_e, dtype=float)
+                    data_f = np.array(self._accumulated_plot_data_f, dtype=float)
+                    data_g = np.array(self._accumulated_plot_data_g, dtype=float)
+                    data_h = np.array(self._accumulated_plot_data_h, dtype=float)
+                    self.signal_plot.emit((data_a, data_b, data_c, data_d, data_e, data_f, data_g, data_h, time_axis))
+                elif self._config.multi_channel_mode:
+                    # Emit standard multi-channel plot data: (data_a, data_b, time_axis)
                     self.signal_plot.emit((data_a, data_b, time_axis))
                 else:
                     # Emit single-channel plot data: (data, time_axis) - use Channel A data
